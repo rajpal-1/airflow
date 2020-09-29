@@ -29,7 +29,7 @@ import psutil
 import pytest
 import six
 from freezegun import freeze_time
-from mock import MagicMock, patch
+from mock import patch
 from parameterized import parameterized
 
 import airflow.example_dags
@@ -40,14 +40,14 @@ from airflow.exceptions import AirflowException
 from airflow.executors.base_executor import BaseExecutor
 from airflow.jobs.backfill_job import BackfillJob
 from airflow.jobs.scheduler_job import DagFileProcessor, SchedulerJob
-from airflow.models import DAG, DagBag, DagModel, Pool, SlaMiss, TaskInstance, errors
+from airflow.models import DAG, DagBag, DagModel, Pool, TaskInstance, errors
 from airflow.models.dagrun import DagRun
 from airflow.models.taskinstance import SimpleTaskInstance, TaskInstanceKey
 from airflow.operators.bash import BashOperator
 from airflow.operators.dummy_operator import DummyOperator
 from airflow.serialization.serialized_objects import SerializedDAG
 from airflow.utils import timezone
-from airflow.utils.dag_processing import FailureCallbackRequest, SimpleDagBag
+from airflow.utils.dag_processing import FailureCallbackRequest, SimpleDag, SimpleDagBag
 from airflow.utils.dates import days_ago
 from airflow.utils.file import list_py_file_paths
 from airflow.utils.session import create_session, provide_session
@@ -133,63 +133,6 @@ class TestDagFileProcessor(unittest.TestCase):
         non_serialized_dagbag.sync_to_db()
         cls.dagbag = DagBag(read_dags_from_db=True)
 
-    def test_dag_file_processor_sla_miss_callback(self):
-        """
-        Test that the dag file processor calls the sla miss callback
-        """
-        session = settings.Session()
-
-        sla_callback = MagicMock()
-
-        # Create dag with a start of 1 day ago, but an sla of 0
-        # so we'll already have an sla_miss on the books.
-        test_start_date = days_ago(1)
-        dag = DAG(dag_id='test_sla_miss',
-                  sla_miss_callback=sla_callback,
-                  default_args={'start_date': test_start_date,
-                                'sla': datetime.timedelta()})
-
-        task = DummyOperator(task_id='dummy',
-                             dag=dag,
-                             owner='airflow')
-
-        session.merge(TaskInstance(task=task, execution_date=test_start_date, state='success'))
-
-        session.merge(SlaMiss(task_id='dummy', dag_id='test_sla_miss', execution_date=test_start_date))
-
-        dag_file_processor = DagFileProcessor(dag_ids=[], log=mock.MagicMock())
-        dag_file_processor.manage_slas(dag=dag, session=session)
-
-        assert sla_callback.called
-
-    def test_dag_file_processor_sla_miss_callback_invalid_sla(self):
-        """
-        Test that the dag file processor does not call the sla miss callback when
-        given an invalid sla
-        """
-        session = settings.Session()
-
-        sla_callback = MagicMock()
-
-        # Create dag with a start of 1 day ago, but an sla of 0
-        # so we'll already have an sla_miss on the books.
-        # Pass anything besides a timedelta object to the sla argument.
-        test_start_date = days_ago(1)
-        dag = DAG(dag_id='test_sla_miss',
-                  sla_miss_callback=sla_callback,
-                  default_args={'start_date': test_start_date,
-                                'sla': None})
-
-        task = DummyOperator(task_id='dummy', dag=dag, owner='airflow')
-
-        session.merge(TaskInstance(task=task, execution_date=test_start_date, state='success'))
-
-        session.merge(SlaMiss(task_id='dummy', dag_id='test_sla_miss', execution_date=test_start_date))
-
-        dag_file_processor = DagFileProcessor(dag_ids=[], log=mock.MagicMock())
-        dag_file_processor.manage_slas(dag=dag, session=session)
-        sla_callback.assert_not_called()
-
     def test_scheduler_executor_overflow(self):
         """
         Test that tasks that are set back to scheduled and removed from the executor
@@ -241,178 +184,6 @@ class TestDagFileProcessor(unittest.TestCase):
             scheduled_tasks = [ti for ti in tis if ti.state == State.SCHEDULED]
             self.assertEqual(3, len(successful_tasks))
             self.assertEqual(6, len(scheduled_tasks))
-
-    def test_dag_file_processor_sla_miss_callback_sent_notification(self):
-        """
-        Test that the dag file processor does not call the sla_miss_callback when a
-        notification has already been sent
-        """
-        session = settings.Session()
-
-        # Mock the callback function so we can verify that it was not called
-        sla_callback = MagicMock()
-
-        # Create dag with a start of 2 days ago, but an sla of 1 day
-        # ago so we'll already have an sla_miss on the books
-        test_start_date = days_ago(2)
-        dag = DAG(dag_id='test_sla_miss',
-                  sla_miss_callback=sla_callback,
-                  default_args={'start_date': test_start_date,
-                                'sla': datetime.timedelta(days=1)})
-
-        task = DummyOperator(task_id='dummy', dag=dag, owner='airflow')
-
-        # Create a TaskInstance for two days ago
-        session.merge(TaskInstance(task=task, execution_date=test_start_date, state='success'))
-
-        # Create an SlaMiss where notification was sent, but email was not
-        session.merge(SlaMiss(task_id='dummy',
-                              dag_id='test_sla_miss',
-                              execution_date=test_start_date,
-                              email_sent=False,
-                              notification_sent=True))
-
-        # Now call manage_slas and see if the sla_miss callback gets called
-        dag_file_processor = DagFileProcessor(dag_ids=[], log=mock.MagicMock())
-        dag_file_processor.manage_slas(dag=dag, session=session)
-
-        sla_callback.assert_not_called()
-
-    def test_dag_file_processor_sla_miss_callback_exception(self):
-        """
-        Test that the dag file processor gracefully logs an exception if there is a problem
-        calling the sla_miss_callback
-        """
-        session = settings.Session()
-
-        sla_callback = MagicMock(side_effect=RuntimeError('Could not call function'))
-
-        test_start_date = days_ago(2)
-        dag = DAG(dag_id='test_sla_miss',
-                  sla_miss_callback=sla_callback,
-                  default_args={'start_date': test_start_date})
-
-        task = DummyOperator(task_id='dummy',
-                             dag=dag,
-                             owner='airflow',
-                             sla=datetime.timedelta(hours=1))
-
-        session.merge(TaskInstance(task=task, execution_date=test_start_date, state='Success'))
-
-        # Create an SlaMiss where notification was sent, but email was not
-        session.merge(SlaMiss(task_id='dummy',
-                              dag_id='test_sla_miss',
-                              execution_date=test_start_date))
-
-        # Now call manage_slas and see if the sla_miss callback gets called
-        mock_log = mock.MagicMock()
-        dag_file_processor = DagFileProcessor(dag_ids=[], log=mock_log)
-        dag_file_processor.manage_slas(dag=dag, session=session)
-        assert sla_callback.called
-        mock_log.exception.assert_called_once_with(
-            'Could not call sla_miss_callback for DAG %s',
-            'test_sla_miss')
-
-    @mock.patch('airflow.jobs.scheduler_job.send_email')
-    def test_dag_file_processor_only_collect_emails_from_sla_missed_tasks(self, mock_send_email):
-        session = settings.Session()
-
-        test_start_date = days_ago(2)
-        dag = DAG(dag_id='test_sla_miss',
-                  default_args={'start_date': test_start_date,
-                                'sla': datetime.timedelta(days=1)})
-
-        email1 = 'test1@test.com'
-        task = DummyOperator(task_id='sla_missed',
-                             dag=dag,
-                             owner='airflow',
-                             email=email1,
-                             sla=datetime.timedelta(hours=1))
-
-        session.merge(TaskInstance(task=task, execution_date=test_start_date, state='Success'))
-
-        email2 = 'test2@test.com'
-        DummyOperator(task_id='sla_not_missed',
-                      dag=dag,
-                      owner='airflow',
-                      email=email2)
-
-        session.merge(SlaMiss(task_id='sla_missed', dag_id='test_sla_miss', execution_date=test_start_date))
-
-        dag_file_processor = DagFileProcessor(dag_ids=[], log=mock.MagicMock())
-
-        dag_file_processor.manage_slas(dag=dag, session=session)
-
-        self.assertTrue(len(mock_send_email.call_args_list), 1)
-
-        send_email_to = mock_send_email.call_args_list[0][0][0]
-        self.assertIn(email1, send_email_to)
-        self.assertNotIn(email2, send_email_to)
-
-    @mock.patch('airflow.jobs.scheduler_job.Stats.incr')
-    @mock.patch("airflow.utils.email.send_email")
-    def test_dag_file_processor_sla_miss_email_exception(self, mock_send_email, mock_stats_incr):
-        """
-        Test that the dag file processor gracefully logs an exception if there is a problem
-        sending an email
-        """
-        session = settings.Session()
-
-        # Mock the callback function so we can verify that it was not called
-        mock_send_email.side_effect = RuntimeError('Could not send an email')
-
-        test_start_date = days_ago(2)
-        dag = DAG(dag_id='test_sla_miss',
-                  default_args={'start_date': test_start_date,
-                                'sla': datetime.timedelta(days=1)})
-
-        task = DummyOperator(task_id='dummy',
-                             dag=dag,
-                             owner='airflow',
-                             email='test@test.com',
-                             sla=datetime.timedelta(hours=1))
-
-        session.merge(TaskInstance(task=task, execution_date=test_start_date, state='Success'))
-
-        # Create an SlaMiss where notification was sent, but email was not
-        session.merge(SlaMiss(task_id='dummy', dag_id='test_sla_miss', execution_date=test_start_date))
-
-        mock_log = mock.MagicMock()
-        dag_file_processor = DagFileProcessor(dag_ids=[], log=mock_log)
-
-        dag_file_processor.manage_slas(dag=dag, session=session)
-        mock_log.exception.assert_called_once_with(
-            'Could not send SLA Miss email notification for DAG %s',
-            'test_sla_miss')
-        mock_stats_incr.assert_called_once_with('sla_email_notification_failure')
-
-    def test_dag_file_processor_sla_miss_deleted_task(self):
-        """
-        Test that the dag file processor will not crash when trying to send
-        sla miss notification for a deleted task
-        """
-        session = settings.Session()
-
-        test_start_date = days_ago(2)
-        dag = DAG(dag_id='test_sla_miss',
-                  default_args={'start_date': test_start_date,
-                                'sla': datetime.timedelta(days=1)})
-
-        task = DummyOperator(task_id='dummy',
-                             dag=dag,
-                             owner='airflow',
-                             email='test@test.com',
-                             sla=datetime.timedelta(hours=1))
-
-        session.merge(TaskInstance(task=task, execution_date=test_start_date, state='Success'))
-
-        # Create an SlaMiss where notification was sent, but email was not
-        session.merge(SlaMiss(task_id='dummy_deleted', dag_id='test_sla_miss',
-                              execution_date=test_start_date))
-
-        mock_log = mock.MagicMock()
-        dag_file_processor = DagFileProcessor(dag_ids=[], log=mock_log)
-        dag_file_processor.manage_slas(dag=dag, session=session)
 
     def test_dag_file_processor_dagrun_once(self):
         """
@@ -1071,7 +842,6 @@ class TestDagFileProcessor(unittest.TestCase):
 
         scheduler = DagFileProcessor(dag_ids=[dag.dag_id], log=mock.MagicMock())
         scheduler._process_task_instances = mock.MagicMock()
-        scheduler.manage_slas = mock.MagicMock()
 
         scheduler._process_dags([dag] + dag.subdags)
 
@@ -1087,6 +857,39 @@ class TestDagFileProcessor(unittest.TestCase):
             )
 
             self.assertGreater(parent_dagruns, 0)
+
+    @mock.patch('airflow.models.DAG.manage_slas')
+    def test_process_dasg_call_manage_slas(self, mock_manage_slas):
+        """
+        Test that dag file processor calls manage_slas of the dag when
+        processing the dag
+        """
+        dag = DAG(dag_id='test_dag_for_sla_test', start_date=DEFAULT_DATE)
+
+        processor = DagFileProcessor(dag_ids=[dag.dag_id], log=mock.MagicMock())
+        processor._process_task_instances = mock.MagicMock()
+
+        processor._process_dags([dag])
+        mock_manage_slas.assert_called_once()
+
+    @mock.patch('airflow.models.DAG.manage_slas')
+    def test_process_dags_handles_sla_exceptions(self, mock_manage_slas):
+        """
+        Test that dag file processor gracefully logs an exception if there is a
+        problem sending an email
+        """
+        mock_manage_slas.side_effect = RuntimeError('Could not call function')
+        dag = DAG(dag_id='test_dag_for_sla_test', start_date=DEFAULT_DATE)
+
+        mock_log = mock.MagicMock()
+        processor = DagFileProcessor(dag_ids=[dag.dag_id], log=mock_log)
+        processor._process_task_instances = mock.MagicMock()
+
+        processor._process_dags([dag])
+        mock_manage_slas.assert_called_once()
+        mock_log.exception.assert_called_once_with(
+            "DAG %s was unable to successfully manage SLAs; continuing"
+            " with scheduling rather than raising exception.", dag)
 
     @patch.object(TaskInstance, 'handle_failure')
     def test_execute_on_failure_callbacks(self, mock_ti_handle_failure):
@@ -1327,24 +1130,24 @@ class TestDagFileProcessorQueriesCount(unittest.TestCase):
             # One DAG with two tasks per DAG file
             ([ 5,   5,   5,   5],  1,  1, "1d",   "None", "no_structure"),  # noqa
             ([ 5,   5,   5,   5],  1,  1, "1d",   "None",       "linear"),  # noqa
-            ([15,   9,   9,   9],  1,  1, "1d",  "@once", "no_structure"),  # noqa
-            ([15,   9,   9,   9],  1,  1, "1d",  "@once",       "linear"),  # noqa
-            ([15,  18,  21,  24],  1,  1, "1d",    "30m", "no_structure"),  # noqa
-            ([15,  18,  21,  24],  1,  1, "1d",    "30m",       "linear"),  # noqa
+            ([18,   9,   9,   9],  1,  1, "1d",  "@once", "no_structure"),  # noqa
+            ([18,   9,   9,   9],  1,  1, "1d",  "@once",       "linear"),  # noqa
+            ([18,  18,  21,  24],  1,  1, "1d",    "30m", "no_structure"),  # noqa
+            ([18,  18,  21,  24],  1,  1, "1d",    "30m",       "linear"),  # noqa
             # One DAG with five tasks per DAG file
             ([ 5,   5,   5,   5],  1,  5, "1d",   "None", "no_structure"),  # noqa
             ([ 5,   5,   5,   5],  1,  5, "1d",   "None",       "linear"),  # noqa
-            ([15,   9,   9,   9],  1,  5, "1d",  "@once", "no_structure"),  # noqa
-            ([16,  10,  10,  10],  1,  5, "1d",  "@once",       "linear"),  # noqa
-            ([15,  18,  21,  24],  1,  5, "1d",    "30m", "no_structure"),  # noqa
-            ([16,  20,  24,  28],  1,  5, "1d",    "30m",       "linear"),  # noqa
+            ([18,   9,   9,   9],  1,  5, "1d",  "@once", "no_structure"),  # noqa
+            ([19,  10,  10,  10],  1,  5, "1d",  "@once",       "linear"),  # noqa
+            ([18,  18,  21,  24],  1,  5, "1d",    "30m", "no_structure"),  # noqa
+            ([19,  20,  24,  28],  1,  5, "1d",    "30m",       "linear"),  # noqa
             # 10 DAGs with 10 tasks per DAG file
             ([ 5,   5,   5,   5], 10, 10, "1d",  "None",  "no_structure"),  # noqa
             ([ 5,   5,   5,   5], 10, 10, "1d",  "None",        "linear"),  # noqa
-            ([87,  45,  45,  45], 10, 10, "1d", "@once",  "no_structure"),  # noqa
-            ([97,  55,  55,  55], 10, 10, "1d", "@once",        "linear"),  # noqa
-            ([87, 117, 117, 117], 10, 10, "1d",   "30m",  "no_structure"),  # noqa
-            ([97, 137, 137, 137], 10, 10, "1d",   "30m",        "linear"),  # noqa
+            ([127,  45,  45,  45], 10, 10, "1d", "@once",  "no_structure"),  # noqa
+            ([127,  55,  55,  55], 10, 10, "1d", "@once",        "linear"),  # noqa
+            ([127, 117, 117, 117], 10, 10, "1d",   "30m",  "no_structure"),  # noqa
+            ([127, 137, 137, 137], 10, 10, "1d",   "30m",        "linear"),  # noqa
             # pylint: enable=bad-whitespace
         ]
     )
@@ -2941,6 +2744,8 @@ class TestSchedulerJob(unittest.TestCase):
         ti.refresh_from_db()
         self.assertEqual(State.SUCCESS, ti.state)
 
+
+    @pytest.mark.quarantined
     def test_retry_still_in_executor(self):
         """
         Checks if the scheduler does not put a task in limbo, when a task is retried

@@ -36,6 +36,7 @@ from airflow.models.baseoperator import BaseOperator
 from airflow.operators.bash import BashOperator
 from airflow.serialization.json_schema import load_dag_schema_dict
 from airflow.serialization.serialized_objects import SerializedBaseOperator, SerializedDAG
+from airflow.sla import send_sla_miss_email
 from tests.test_utils.mock_operators import CustomOperator, CustomOpLink, GoogleLink
 
 executor_config_pod = k8s.V1Pod(
@@ -780,6 +781,9 @@ class TestStringifiedDAGs(unittest.TestCase):
                           'end_date': None,
                           'execution_timeout': None,
                           'executor_config': {},
+                          'expected_duration': None,
+                          'expected_finish': None,
+                          'expected_start': None,
                           'inlets': [],
                           'label': '10',
                           'max_retry_delay': None,
@@ -800,6 +804,7 @@ class TestStringifiedDAGs(unittest.TestCase):
                           'retry_exponential_backoff': False,
                           'run_as_user': None,
                           'sla': None,
+                          'sla_miss_callback': send_sla_miss_email,
                           'start_date': None,
                           'subdag': None,
                           'task_concurrency': None,

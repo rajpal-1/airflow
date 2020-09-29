@@ -23,6 +23,7 @@ import unittest
 from datetime import timedelta
 from time import sleep
 
+import pytest
 from dateutil.relativedelta import relativedelta
 from numpy.testing import assert_array_almost_equal
 
@@ -93,7 +94,6 @@ class TestCore(unittest.TestCase):
     def test_check_operators(self):
 
         conn_id = "sqlite_default"
-
         captain_hook = BaseHook.get_hook(conn_id=conn_id)  # quite funny :D
         captain_hook.run("CREATE TABLE operator_test_table (a, b)")
         captain_hook.run("insert into operator_test_table values (1,2)")
@@ -153,6 +153,40 @@ class TestCore(unittest.TestCase):
             ('Invalid arguments were passed to BashOperator '
              '(task_id: test_illegal_args).'),
             str(ctx.exception))
+
+    def test_sla_deprecated_arg_warning(self):
+        with pytest.warns(PendingDeprecationWarning, match="sla is deprecated as a task parameter"):
+            DummyOperator(
+                task_id="test_sla_deprecated_arg_warning",
+                sla=timedelta(hours=1)
+            )
+
+    def test_sla_redundant_arg_warning(self):
+        with pytest.warns(PendingDeprecationWarning,
+                          match="Both sla and expected_finish provided as task parameters"):
+            expected_finish = timedelta(hours=2)
+            op = DummyOperator(
+                task_id="test_sla_redundant_arg_warning",
+                sla=timedelta(hours=1),
+                expected_finish=expected_finish
+            )
+            self.assertEqual(op.expected_finish, expected_finish)
+
+    def test_sla_invalid_arg_exception(self):
+        msg = (
+            "Invalid SLA params were set! "
+            "expected_duration must be a timedelta, got: <class 'int'>; "
+            "expected_start must be a timedelta, got: <class 'float'>; "
+            "expected_finish must be a timedelta, got: <class 'str'>"
+        )
+
+        with self.assertRaisesRegex(AirflowException, msg):
+            DummyOperator(
+                task_id="test_sla_redundant_arg_warning",
+                expected_duration=10,
+                expected_start=1.0,
+                expected_finish="10"
+            )
 
     def test_bash_operator(self):
         op = BashOperator(
