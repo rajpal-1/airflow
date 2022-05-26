@@ -16,9 +16,14 @@
 # specific language governing permissions and limitations
 # under the License.
 import datetime
+import multiprocessing.process
+import os
+import signal
 import subprocess
 import unittest
 from unittest import mock
+
+import pytest
 
 from airflow import settings
 from airflow.exceptions import AirflowException
@@ -64,7 +69,7 @@ class TestLocalExecutor(unittest.TestCase):
         executor.start()
 
         success_key = 'success {}'
-        assert executor.result_queue.empty()
+        assert not executor.futures
 
         execution_date = datetime.datetime.now()
         for i in range(self.TEST_SUCCESS_COMMANDS):
@@ -77,8 +82,10 @@ class TestLocalExecutor(unittest.TestCase):
         executor.running.add(fail_key)
         executor.execute_async(key=fail_key, command=fail_command)
 
+        expected = self.TEST_SUCCESS_COMMANDS + 1 if parallelism == 0 else parallelism
+        assert len(multiprocessing.process.active_children()) == expected
+
         executor.end()
-        # By that time Queues are already shutdown so we cannot check if they are empty
         assert len(executor.running) == 0
 
         for i in range(self.TEST_SUCCESS_COMMANDS):
@@ -86,9 +93,6 @@ class TestLocalExecutor(unittest.TestCase):
             key = key_id, 'fake_ti', execution_date, 0
             assert executor.event_buffer[key][0] == State.SUCCESS
         assert executor.event_buffer[fail_key][0] == State.FAILED
-
-        expected = self.TEST_SUCCESS_COMMANDS + 1 if parallelism == 0 else parallelism
-        assert executor.workers_used == expected
 
     def test_execution_subprocess_unlimited_parallelism(self):
         with mock.patch.object(
@@ -124,3 +128,14 @@ class TestLocalExecutor(unittest.TestCase):
             mock.call('executor.running_tasks', mock.ANY),
         ]
         mock_stats_gauge.assert_has_calls(calls)
+
+    @pytest.mark.execution_timeout(5)
+    def test_clean_stop_on_signal(self):
+        executor = LocalExecutor(parallelism=2)
+        executor.start()
+        try:
+            os.kill(0, signal.SIGINT)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            executor.end()
