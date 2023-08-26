@@ -81,6 +81,10 @@ class AirflowTaskTimeout(AirflowException):
     """Raise when the task execution times-out."""
 
 
+class AirflowDeferTimeout(AirflowException):
+    """Raise when the trigger times-out because of a timeout duration provided to defer method."""
+
+
 class AirflowWebServerTimeout(AirflowException):
     """Raise when the web server times out."""
 
@@ -358,16 +362,23 @@ class TaskDeferred(BaseException):
         trigger,
         method_name: str,
         kwargs: dict[str, Any] | None = None,
-        timeout: datetime.timedelta | None = None,
+        timeout: datetime.datetime | datetime.timedelta | None = None,
+        timeout_reason: str | None = None,
     ):
         super().__init__()
         self.trigger = trigger
         self.method_name = method_name
         self.kwargs = kwargs
-        self.timeout = timeout
         # Check timeout type at runtime
-        if self.timeout is not None and not hasattr(self.timeout, "total_seconds"):
-            raise ValueError("Timeout value must be a timedelta")
+        if (
+            timeout is not None
+            and not isinstance(timeout, datetime.datetime)
+            and not hasattr(timeout, "total_seconds")
+        ):
+            raise ValueError("Timeout value must be a timedelta or datetime")
+
+        self.timeout = timeout
+        self.timeout_reason = timeout_reason
 
     def __repr__(self) -> str:
         return f"<TaskDeferred trigger={self.trigger} method={self.method_name}>"

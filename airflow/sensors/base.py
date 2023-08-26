@@ -35,7 +35,6 @@ from airflow.exceptions import (
     AirflowSensorTimeout,
     AirflowSkipException,
     AirflowTaskTimeout,
-    TaskDeferralError,
 )
 from airflow.executors.executor_loader import ExecutorLoader
 from airflow.models.baseoperator import BaseOperator
@@ -199,11 +198,33 @@ class BaseSensorOperator(BaseOperator, SkipMixin):
                     f"mode since it will take reschedule time over MySQL's TIMESTAMP limit."
                 )
 
+    def _trigger_timeout(
+        self, context: Context, timeout: timedelta | None = None
+    ) -> tuple[datetime.datetime | None, str | None]:
+        """Returns the earliest time to fail the task and the reason for it."""
+        trigger_timeout, trigger_timeout_reason = super()._trigger_timeout(context, timeout)
+        if self.timeout:
+            started_at, _ = self._get_started_at_and_run_duration(context)
+            if isinstance(started_at, datetime.datetime):
+                sensor_timeout_at = started_at + datetime.timedelta(seconds=self.timeout)
+            else:
+                elapsed_time = time.monotonic() - started_at
+                sensor_timeout_at = timezone.utcnow() + datetime.timedelta(
+                    seconds=self.timeout - elapsed_time
+                )
+        else:
+            sensor_timeout_at = None
+        if sensor_timeout_at is not None and (trigger_timeout is None or sensor_timeout_at < trigger_timeout):
+            trigger_timeout, trigger_timeout_reason = sensor_timeout_at, "sensor_timeout"
+        return trigger_timeout, trigger_timeout_reason
+
     def poke(self, context: Context) -> bool | PokeReturnValue:
         """Override when deriving this class."""
         raise AirflowException("Override me.")
 
-    def execute(self, context: Context) -> Any:
+    def _get_started_at_and_run_duration(
+        self, context: Context
+    ) -> tuple[datetime.datetime | float, Callable]:
         started_at: datetime.datetime | float
 
         if self.reschedule:
@@ -229,6 +250,11 @@ class BaseSensorOperator(BaseOperator, SkipMixin):
 
             def run_duration() -> float:
                 return time.monotonic() - start_monotonic
+
+        return started_at, run_duration
+
+    def execute(self, context: Context) -> Any:
+        started_at, run_duration = self._get_started_at_and_run_duration(context)
 
         try_number = 1
         log_dag_id = self.dag.dag_id if self.has_dag() else ""
@@ -290,10 +316,15 @@ class BaseSensorOperator(BaseOperator, SkipMixin):
     def resume_execution(self, next_method: str, next_kwargs: dict[str, Any] | None, context: Context):
         try:
             return super().resume_execution(next_method, next_kwargs, context)
-        except (AirflowException, TaskDeferralError) as e:
+        except AirflowException as e:
             if self.soft_fail:
                 raise AirflowSkipException(str(e)) from e
             raise
+
+    def handle_trigger_timeout(self, context: Context):
+        if context["ti"].trigger_timeout_reason == "sensor_timeout":
+            raise AirflowSensorTimeout("Async sensor timeout has been reached.")
+        super().handle_trigger_timeout(context)
 
     def _get_next_poke_interval(
         self,

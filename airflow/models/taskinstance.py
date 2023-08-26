@@ -164,6 +164,16 @@ class TaskReturnCode(Enum):
     """When task exits with deferral to trigger."""
 
 
+def get_current_context() -> Context:
+    """Retrieve the execution context dictionary without altering user method's signature."""
+    if not _CURRENT_CONTEXT:
+        raise AirflowException(
+            "Current context was requested but no context was found! "
+            "Are you running within an airflow task?"
+        )
+    return _CURRENT_CONTEXT[-1]
+
+
 @contextlib.contextmanager
 def set_current_context(context: Context) -> Generator[Context, None, None]:
     """
@@ -425,6 +435,10 @@ class TaskInstance(Base, LoggingMixin):
     # The trigger_timeout should be TIMESTAMP(using UtcDateTime) but for ease of
     # migration, we are keeping it as DateTime pending a change where expensive
     # migration is inevitable.
+
+    # The reason why the trigger should time out after trigger_timeout
+    # (e.g. "execution_timeout", "sensor_timeout", "trigger_timeout")
+    trigger_timeout_reason = Column(String(256))
 
     # The method to call next, and any extra arguments to pass to it.
     # Usually used when resuming from DEFERRED.
@@ -1721,8 +1735,11 @@ class TaskInstance(Base, LoggingMixin):
         # if it goes beyond
         if task_to_execute.execution_timeout:
             # If we are coming in with a next_method (i.e. from a deferral),
-            # calculate the timeout from our start_date.
+            # calculate the timeout from our start_date or call handle_trigger_timeout
+            # if we are already timed out
             if self.next_method:
+                if self.next_method == "__timeout__":
+                    return task_to_execute.handle_trigger_timeout(context=context)
                 timeout_seconds = (
                     task_to_execute.execution_timeout - (timezone.utcnow() - self.start_date)
                 ).total_seconds()
@@ -1767,24 +1784,14 @@ class TaskInstance(Base, LoggingMixin):
         self.trigger_id = trigger_row.id
         self.next_method = defer.method_name
         self.next_kwargs = defer.kwargs or {}
+        if defer.timeout and isinstance(defer.timeout, timedelta):
+            self.trigger_timeout = defer.timeout + timezone.utcnow()
+        else:
+            self.trigger_timeout = defer.timeout
+        self.trigger_timeout_reason = defer.timeout_reason
 
         # Decrement try number so the next one is the same try
         self._try_number -= 1
-
-        # Calculate timeout too if it was passed
-        if defer.timeout is not None:
-            self.trigger_timeout = timezone.utcnow() + defer.timeout
-        else:
-            self.trigger_timeout = None
-
-        # If an execution_timeout is set, set the timeout to the minimum of
-        # it and the trigger timeout
-        execution_timeout = self.task.execution_timeout
-        if execution_timeout:
-            if self.trigger_timeout:
-                self.trigger_timeout = min(self.start_date + execution_timeout, self.trigger_timeout)
-            else:
-                self.trigger_timeout = self.start_date + execution_timeout
 
     def _run_execute_callback(self, context: Context, task: Operator) -> None:
         """Functions that need to be run before a Task is executed."""

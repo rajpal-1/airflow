@@ -55,7 +55,9 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from airflow.configuration import conf
 from airflow.exceptions import (
+    AirflowDeferTimeout,
     AirflowException,
+    AirflowTaskTimeout,
     FailStopDagInvalidTriggerRule,
     RemovedInAirflow3Warning,
     TaskDeferralError,
@@ -1575,6 +1577,34 @@ class BaseOperator(AbstractOperator, metaclass=BaseOperatorMeta):
         # of its subclasses (which don't inherit from anything but BaseOperator).
         return getattr(self, "_is_empty", False)
 
+    def _trigger_timeout(
+        self, context: Context, timeout: timedelta | None = None
+    ) -> tuple[datetime | None, str | None]:
+        """
+        Returns the earliest time to fail the task and the reason for it.
+
+        :param context: Task instance execution Context Dictionary
+        :param timeout: Timeout for the Trigger.
+        :return: trigger_timeout, trigger_timeout_reason calculated by comparing the different
+            timeout options and choosing the earliest one.
+        """
+        trigger_timeout: datetime | None = None
+        trigger_timeout_reason: str | None = None
+
+        if timeout is not None:
+            trigger_timeout = timezone.utcnow() + timeout
+            trigger_timeout_reason = "trigger_timeout"
+
+        if self.execution_timeout is not None:
+            execution_timeout = (context["ti"].start_date or timezone.utcnow()) + self.execution_timeout
+        else:
+            execution_timeout = None
+        if execution_timeout is not None and (trigger_timeout is None or execution_timeout < trigger_timeout):
+            trigger_timeout = execution_timeout
+            trigger_timeout_reason = "execution_timeout"
+
+        return trigger_timeout, trigger_timeout_reason
+
     def defer(
         self,
         *,
@@ -1589,23 +1619,61 @@ class BaseOperator(AbstractOperator, metaclass=BaseOperatorMeta):
         This is achieved by raising a special exception (TaskDeferred)
         which is caught in the main _execute_task wrapper.
         """
-        raise TaskDeferred(trigger=trigger, method_name=method_name, kwargs=kwargs, timeout=timeout)
+        from airflow.models.taskinstance import get_current_context
+
+        try:
+            # get context in a try/except block for unit tests
+            context = get_current_context()
+        except AirflowException:
+            context = Context()
+
+        trigger_timeout, trigger_timeout_reason = self._trigger_timeout(context, timeout)
+
+        raise TaskDeferred(
+            trigger=trigger,
+            method_name=method_name,
+            kwargs=kwargs,
+            timeout=trigger_timeout,
+            timeout_reason=trigger_timeout_reason,
+        )
 
     def resume_execution(self, next_method: str, next_kwargs: dict[str, Any] | None, context: Context):
         """This method is called when a deferred task is resumed."""
-        # __fail__ is a special signal value for next_method that indicates
-        # this task was scheduled specifically to fail.
-        if next_method == "__fail__":
-            next_kwargs = next_kwargs or {}
-            traceback = next_kwargs.get("traceback")
-            if traceback is not None:
-                self.log.error("Trigger failed:\n%s", "\n".join(traceback))
-            raise TaskDeferralError(next_kwargs.get("error", "Unknown"))
+        # __fail__ and __timeout__ are special signals values for next_method
+        # that indicate this task was scheduled specifically to fail or timeout.
+        if next_method in ["__fail__", "__timeout__"]:
+            if next_method == "__fail__":
+                next_kwargs = next_kwargs or {}
+                traceback = next_kwargs.get("traceback")
+                error_msg = next_kwargs.get("error", "Unknown")
+                if traceback is not None:
+                    self.log.error("Trigger failed:\n%s", "\n".join(traceback))
+                raise TaskDeferralError(error_msg)
+            else:
+                return self.handle_trigger_timeout(context)
         # Grab the callable off the Operator/Task and add in any kwargs
         execute_callable = getattr(self, next_method)
         if next_kwargs:
             execute_callable = functools.partial(execute_callable, **next_kwargs)
         return execute_callable(context)
+
+    def handle_trigger_timeout(self, context: Context):
+        """This method is used to handle a trigger timeout."""
+        timeout_reason = context["ti"].trigger_timeout_reason
+        if timeout_reason == "execution_timeout":
+            self.on_kill()
+            raise AirflowTaskTimeout("Deferred task timed out")
+        elif timeout_reason == "trigger_timeout":
+            return self.on_defer_timeout(context)
+        raise AirflowException(f"Trigger timed out for the reason: {timeout_reason}")
+
+    def on_defer_timeout(self, context: Context):
+        """
+        This method is called when a deferred task times out because of the timeout provided to defer().
+
+        You can override this method to perform any cleanup necessary, raise an exception, or return a value.
+        """
+        raise AirflowDeferTimeout("Deferred task timed out")
 
     def unmap(self, resolve: None | dict[str, Any] | tuple[Context, Session]) -> BaseOperator:
         """Get the "normal" operator from the current operator.

@@ -22,6 +22,7 @@ import datetime
 import logging
 import os
 import shutil
+import sys
 from datetime import timedelta
 from tempfile import mkdtemp
 from typing import Generator
@@ -40,7 +41,7 @@ from airflow.callbacks.database_callback_sink import DatabaseCallbackSink
 from airflow.callbacks.pipe_callback_sink import PipeCallbackSink
 from airflow.dag_processing.manager import DagFileProcessorAgent
 from airflow.datasets import Dataset
-from airflow.exceptions import AirflowException
+from airflow.exceptions import AirflowDeferTimeout, AirflowException, AirflowSensorTimeout, AirflowTaskTimeout
 from airflow.executors.base_executor import BaseExecutor
 from airflow.executors.executor_constants import MOCK_EXECUTOR
 from airflow.executors.executor_loader import ExecutorLoader
@@ -55,8 +56,10 @@ from airflow.models.serialized_dag import SerializedDagModel
 from airflow.models.taskinstance import SimpleTaskInstance, TaskInstanceKey
 from airflow.operators.bash import BashOperator
 from airflow.operators.empty import EmptyOperator
+from airflow.sensors.base import BaseSensorOperator
 from airflow.serialization.serialized_objects import SerializedDAG
 from airflow.utils import timezone
+from airflow.utils.context import Context
 from airflow.utils.file import list_py_file_paths
 from airflow.utils.session import create_session, provide_session
 from airflow.utils.state import DagRunState, State, TaskInstanceState
@@ -4474,23 +4477,51 @@ class TestSchedulerJob:
         # Assert that the other two are queued
         assert len(DagRun.find(dag_id=dag.dag_id, state=State.QUEUED, session=session)) == 2
 
-    def test_timeout_triggers(self, dag_maker):
+    @pytest.mark.parametrize(
+        "execution_timeout, sensor_timeout, defer_timeout, expected_exception",
+        [
+            # Sensor with only execution timeout, should fail with AirflowTaskTimeout
+            (5, None, None, AirflowTaskTimeout),
+            # Sensor with only sensor timeout, should fail with AirflowSensorTimeout
+            (None, 5, None, AirflowSensorTimeout),
+            # Sensor with only defer timeout, should fail with AirflowDeferTimeout
+            (None, None, 5, AirflowDeferTimeout),
+            # Sensor with smaller execution timeout, should fail with AirflowTaskTimeout
+            (5, 10, 15, AirflowTaskTimeout),
+            # Sensor with smaller sensor timeout, should fail with AirflowSensorTimeout
+            (10, 5, 15, AirflowSensorTimeout),
+            # Sensor with smaller defer timeout, should fail with AirflowDeferTimeout
+            (10, 15, 5, AirflowDeferTimeout),
+        ],
+    )
+    def test_timeout_triggers(
+        self, dag_maker, execution_timeout, sensor_timeout, defer_timeout, expected_exception
+    ):
         """
         Tests that tasks in the deferred state, but whose trigger timeout
         has expired, are correctly failed.
-
         """
+
+        class DummySensor(BaseSensorOperator):
+            def poke(self, context):
+                return True
 
         session = settings.Session()
         # Create the test DAG and task
+        task_args = {}
+        if sensor_timeout:
+            task_args["timeout"] = datetime.timedelta(seconds=sensor_timeout)
+        if execution_timeout:
+            task_args["execution_timeout"] = datetime.timedelta(seconds=execution_timeout)
+
         with dag_maker(
-            dag_id="test_timeout_triggers",
+            dag_id="test_sensor_timeout_triggers",
             start_date=DEFAULT_DATE,
             schedule="@once",
             max_active_runs=1,
             session=session,
         ):
-            EmptyOperator(task_id="dummy1")
+            DummySensor(task_id="dummy1", **task_args)
 
         # Create a Task Instance for the task that is allegedly deferred
         # but past its timeout, and one that is still good.
@@ -4499,26 +4530,52 @@ class TestSchedulerJob:
         dr2 = dag_maker.create_dagrun(
             run_id="test2", execution_date=DEFAULT_DATE + datetime.timedelta(seconds=1)
         )
-        ti1 = dr1.get_task_instance("dummy1", session)
+
+        first_start_date = timezone.utcnow()
+        # second start_date is after 5 seconds
+        second_start_date = first_start_date + datetime.timedelta(seconds=5)
+        # find min timeout between execution_timeout and sensor_timeout
+        min_timeout = min(
+            execution_timeout or sys.maxsize, sensor_timeout or sys.maxsize, defer_timeout or sys.maxsize
+        )
+
+        ti1: TaskInstance = dr1.get_task_instance("dummy1", session)
         ti2 = dr2.get_task_instance("dummy1", session)
         ti1.state = State.DEFERRED
-        ti1.trigger_timeout = timezone.utcnow() - datetime.timedelta(seconds=60)
+        ti1.start_date = first_start_date
+        with time_machine.travel(first_start_date):
+            ti1.trigger_timeout, ti1.trigger_timeout_reason = ti1.task._trigger_timeout(
+                Context(ti=ti1), timedelta(seconds=defer_timeout) if defer_timeout else None
+            )
+
         ti2.state = State.DEFERRED
-        ti2.trigger_timeout = timezone.utcnow() + datetime.timedelta(seconds=60)
+        ti2.start_date = second_start_date
+        with time_machine.travel(second_start_date):
+            ti2.trigger_timeout, ti2.trigger_timeout_reason = ti2.task._trigger_timeout(
+                Context(ti=ti2), timedelta(seconds=defer_timeout) if defer_timeout else None
+            )
         session.flush()
 
         # Boot up the scheduler and make it check timeouts
         scheduler_job = Job()
         self.job_runner = SchedulerJobRunner(job=scheduler_job, subdir=os.devnull)
 
-        self.job_runner.check_trigger_timeouts(session=session)
+        # shift the time machine to 1 second after the first timeout
+        with time_machine.travel(first_start_date + datetime.timedelta(seconds=min_timeout + 1)):
+            self.job_runner.check_trigger_timeouts(session=session)
 
         # Make sure that TI1 is now scheduled to fail, and 2 wasn't touched
         session.refresh(ti1)
         session.refresh(ti2)
         assert ti1.state == State.SCHEDULED
-        assert ti1.next_method == "__fail__"
+        assert ti1.next_method == "__timeout__"
+
         assert ti2.state == State.DEFERRED
+
+        # Make sure that TI1 will fail because of the timeout and not other reasons
+        with pytest.raises(expected_exception):
+            ti1._run_raw_task()
+        assert ti1.state == State.FAILED
 
     def test_find_zombies_nothing(self):
         executor = MockExecutor(do_update=False)
