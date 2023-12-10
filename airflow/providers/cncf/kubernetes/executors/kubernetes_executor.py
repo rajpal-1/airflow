@@ -559,7 +559,7 @@ class KubernetesExecutor(BaseExecutor):
                 pod_list = self._list_pods(query_kwargs)
                 for pod in pod_list:
                     self.adopt_launched_task(kube_client, pod, tis_to_flush_by_key)
-            self._adopt_completed_pods(kube_client)
+            self._delete_orphaned_completed_pods()
             tis_to_flush.extend(tis_to_flush_by_key.values())
             return tis_to_flush
 
@@ -642,38 +642,37 @@ class KubernetesExecutor(BaseExecutor):
         del tis_to_flush_by_key[ti_key]
         self.running.add(ti_key)
 
-    def _adopt_completed_pods(self, kube_client: client.CoreV1Api) -> None:
+    @provide_session
+    def _delete_orphaned_completed_pods(self, session: Session = NEW_SESSION) -> None:
         """
-        Patch completed pods so that the KubernetesJobWatcher can delete them.
+        Delete orphaned completed pods with completed TaskInstances.
 
-        :param kube_client: kubernetes client for speaking to kube API
+        Pods that have reached the Completed status are usually deleted by the scheduler to which
+        they are attached. In case when the scheduler crashes, there is no one to delete these
+        pods. Therefore, they are deleted from another scheduler using this function.
         """
+        from airflow.jobs.job import Job, JobState
+
         if TYPE_CHECKING:
-            assert self.scheduler_job_id
+            assert self.kube_scheduler
 
-        new_worker_id_label = self._make_safe_label_value(self.scheduler_job_id)
-        query_kwargs = {
-            "field_selector": "status.phase=Succeeded",
-            "label_selector": (
-                "kubernetes_executor=True,"
-                f"airflow-worker!={new_worker_id_label},{POD_EXECUTOR_DONE_KEY}!=True"
-            ),
-        }
+        alive_schedulers_ids = session.scalars(
+            select(Job.id).where(Job.job_type == "SchedulerJob", Job.state == JobState.RUNNING)
+        ).all()
+        labels = ["kubernetes_executor=True", f"{POD_EXECUTOR_DONE_KEY}!=True"]
+        for alive_scheduler_id in alive_schedulers_ids:
+            labels.append(f"airflow-worker!={self._make_safe_label_value(str(alive_scheduler_id))}")
+
+        query_kwargs = {"field_selector": "status.phase=Succeeded", "label_selector": ",".join(labels)}
         pod_list = self._list_pods(query_kwargs)
         for pod in pod_list:
-            self.log.info("Attempting to adopt pod %s", pod.metadata.name)
             from kubernetes.client.rest import ApiException
 
             try:
-                kube_client.patch_namespaced_pod(
-                    name=pod.metadata.name,
-                    namespace=pod.metadata.namespace,
-                    body={"metadata": {"labels": {"airflow-worker": new_worker_id_label}}},
-                )
+                self.kube_scheduler.delete_pod(pod_name=pod.metadata.name, namespace=pod.metadata.namespace)
+                self.log.info("Orphaned completed pod %s has been deleted", pod.metadata.name)
             except ApiException as e:
-                self.log.info("Failed to adopt pod %s. Reason: %s", pod.metadata.name, e)
-            ti_id = annotations_to_key(pod.metadata.annotations)
-            self.running.add(ti_id)
+                self.log.info("Failed to delete orphaned completed pod %s. Reason: %s", pod.metadata.name, e)
 
     def _flush_task_queue(self) -> None:
         if TYPE_CHECKING:
