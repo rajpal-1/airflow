@@ -53,7 +53,7 @@ from airflow.utils.file import iter_airflow_imports, might_contain_dag
 from airflow.utils.log.logging_mixin import LoggingMixin, StreamLogWriter, set_context
 from airflow.utils.mixins import MultiprocessingStartMethodMixin
 from airflow.utils.session import NEW_SESSION, provide_session
-from airflow.utils.state import TaskInstanceState
+from airflow.utils.state import DagRunState, TaskInstanceState
 
 if TYPE_CHECKING:
     import multiprocessing
@@ -743,10 +743,15 @@ class DagFileProcessor(LoggingMixin):
     @provide_session
     def _execute_dag_callbacks(self, dagbag: DagBag, request: DagCallbackRequest, session: Session):
         dag = dagbag.dags[request.dag_id]
+        dagrun_state = request.dagrun_state
+        # infer dagrun_state from is_failure_callback for backward compatibility
+        if dagrun_state is None:
+            dagrun_state = DagRunState.FAILED if request.is_failure_callback else DagRunState.SUCCESS
         callbacks, context = DAG.fetch_callback(
             dag=dag,
             dag_run_id=request.run_id,
-            success=not request.is_failure_callback,
+            dagrun_state=dagrun_state,
+            sla_miss=request.sla_miss,
             reason=request.msg,
             session=session,
         ) or (None, None)
