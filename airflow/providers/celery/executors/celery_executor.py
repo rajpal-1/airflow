@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple
 from celery import states as celery_states
 from packaging.version import Version
 
+from airflow.utils.log.task_context_logger import TaskContextLogger
+
 try:
     from airflow.cli.cli_config import (
         ARG_DAEMON,
@@ -80,9 +82,7 @@ from airflow.utils.state import TaskInstanceState
 
 log = logging.getLogger(__name__)
 
-
 CELERY_SEND_ERR_MSG_HEADER = "Error sending Celery task"
-
 
 if TYPE_CHECKING:
     import argparse
@@ -114,7 +114,6 @@ def __getattr__(name):
 To start the celery worker, run the command:
 airflow celery worker
 """
-
 
 # flower cli args
 ARG_BROKER_API = Arg(("-a", "--broker-api"), help="Broker API")
@@ -267,6 +266,7 @@ class CeleryExecutor(BaseExecutor):
         self.tasks = {}
         self.task_publish_retries: Counter[TaskInstanceKey] = Counter()
         self.task_publish_max_retries = conf.getint("celery", "task_publish_max_retries")
+        self._task_context_logger = TaskContextLogger("celery_executor", self.log)
 
     def start(self) -> None:
         self.log.debug("Starting Celery Executor using %s processes for syncing", self._sync_parallelism)
@@ -443,6 +443,9 @@ class CeleryExecutor(BaseExecutor):
             self.running.add(ti.key)
             self.update_task_state(ti.key, state, info)
             adopted.append(f"{ti} in state {state}")
+            self._task_context_logger.info(
+                "Adopted in state %s after previous executor died", state, ti=ti, suppress_in_call_site=True
+            )
 
         if adopted:
             task_instance_str = "\n\t".join(adopted)
