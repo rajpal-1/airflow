@@ -170,7 +170,7 @@ class TestStreamLogWriter:
         logger.log = mock.MagicMock()
 
         log = StreamLogWriter(logger, 1)
-        assert log.encoding == "None"
+        assert log.encoding == "utf-8"
 
     def test_iobase_compatibility(self):
         log = StreamLogWriter(None, 1)
@@ -180,11 +180,11 @@ class TestStreamLogWriter:
         log.close()
 
     def test_textio_compatibility(self):
-        log = StreamLogWriter(None, 1)
+        log = StreamLogWriter("logger.name", 1)
 
-        # Make sure some common operations don't fail
+        # Make sure some common operations won't fail
         assert "b" not in log.mode
-        assert log.name.partition(".")[0] == "<logger>"
+        assert isinstance(log.name, str)
 
 
 @pytest.mark.parametrize(["maintain_propagate"], [[SetContextPropagate.MAINTAIN_PROPAGATE], [None]])

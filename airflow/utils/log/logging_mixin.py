@@ -21,7 +21,7 @@ import abc
 import enum
 import logging
 import sys
-from io import TextIOBase
+from io import TextIOBase, UnsupportedOperation
 from logging import Handler, StreamHandler
 from typing import IO, TYPE_CHECKING, Any, Optional, TypeVar, cast
 
@@ -161,7 +161,7 @@ class StreamLogWriter(TextIOBase, IO[str]):  # type: ignore[misc]
     :param level: The log level method to write to, ie. logging.DEBUG, logging.WARNING
     """
 
-    encoding = "None"
+    encoding = "utf-8"
 
     @property
     def mode(self):
@@ -169,7 +169,19 @@ class StreamLogWriter(TextIOBase, IO[str]):  # type: ignore[misc]
 
     @property
     def name(self):
-        return "<logger>"
+        return f"<logger: {self.logger.name}>"
+
+    def writable(self):
+        return True
+
+    def readable(self):
+        return False
+
+    def seekable(self):
+        return False
+
+    def fileno(self):
+        raise UnsupportedOperation("fileno")
 
     def __init__(self, logger, level):
         self.logger = logger
@@ -204,14 +216,14 @@ class StreamLogWriter(TextIOBase, IO[str]):  # type: ignore[misc]
 
         :param message: message to log
         """
-        newline = message.endswith("\n")
-        result = message.rstrip() if newline else message
-
-        self._buffer += result
-        if newline:
+        if message.endswith("\n"):
+            message = message.rstrip()
+            self._buffer += message
             self.flush()
+        else:
+            self._buffer += message
 
-        return len(result)
+        return len(message)
 
     def flush(self):
         """Ensure all logging output has been flushed."""
