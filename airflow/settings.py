@@ -312,6 +312,7 @@ def configure_orm(disable_connection_pool=False, pool_class=None):
     global Session
     global engine
     from airflow.api_internal.internal_api_call import InternalApiConfig
+    from airflow.utils.json import XComEncoder
 
     if InternalApiConfig.get_use_internal_api():
         Session = TracebackSession
@@ -330,7 +331,13 @@ def configure_orm(disable_connection_pool=False, pool_class=None):
     else:
         connect_args = {}
 
-    engine = create_engine(SQL_ALCHEMY_CONN, connect_args=connect_args, **engine_args, future=True)
+    engine = create_engine(
+        SQL_ALCHEMY_CONN,
+        connect_args=connect_args,
+        **engine_args,
+        future=True,
+        json_serializer=lambda o: json.dumps(o, cls=XComEncoder),
+    )
 
     mask_secret(engine.url.password)
 
