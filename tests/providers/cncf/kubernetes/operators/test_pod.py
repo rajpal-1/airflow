@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 import pendulum
 import pytest
-from kubernetes.client import ApiClient, V1Pod, V1PodSecurityContext, V1PodStatus, models as k8s
+from kubernetes.client import ApiClient, V1Pod, V1PodSecurityContext, models as k8s
 from kubernetes.client.rest import ApiException
 from urllib3 import HTTPResponse
 
@@ -44,7 +44,7 @@ from airflow.providers.cncf.kubernetes.operators.pod import (
 )
 from airflow.providers.cncf.kubernetes.secret import Secret
 from airflow.providers.cncf.kubernetes.triggers.pod import KubernetesPodTrigger
-from airflow.providers.cncf.kubernetes.utils.pod_manager import OnFinishAction, PodLoggingStatus, PodPhase
+from airflow.providers.cncf.kubernetes.utils.pod_manager import OnFinishAction, PodLoggingStatus
 from airflow.providers.cncf.kubernetes.utils.xcom_sidecar import PodDefaults
 from airflow.utils import timezone
 from airflow.utils.session import create_session
@@ -699,14 +699,12 @@ class TestKubernetesPodOperator:
         ],
     )
     @patch(f"{POD_MANAGER_CLASS}.delete_pod")
-    @patch(f"{KPO_MODULE}.KubernetesPodOperator.is_istio_enabled")
     @patch(f"{POD_MANAGER_CLASS}.await_pod_completion")
     @patch(f"{KPO_MODULE}.KubernetesPodOperator.find_pod")
-    def test_pod_with_istio_delete_after_await_container_error(
+    def test_pod_with_sidecar_container_delete_after_await_container_error(
         self,
         find_pod_mock,
         await_pod_completion_mock,
-        is_istio_enabled_mock,
         delete_pod_mock,
         task_kwargs,
         base_container_fail,
@@ -716,13 +714,6 @@ class TestKubernetesPodOperator:
         When KPO fails unexpectedly during await_container, we should still try to delete the pod,
         and the pod we try to delete should be the one returned from find_pod earlier.
         """
-        sidecar = MagicMock()
-        sidecar.name = "istio-proxy"
-        sidecar.namespace = "default"
-        sidecar.image = "istio/proxyv2:1.18.2"
-        sidecar.args = []
-        sidecar.state.running = True
-
         cont_status_1 = MagicMock()
         cont_status_1.name = "base"
         cont_status_1.state.running = False
@@ -732,20 +723,20 @@ class TestKubernetesPodOperator:
             cont_status_1.state.terminated.message = "my-failure"
 
         cont_status_2 = MagicMock()
-        cont_status_2.name = "istio-proxy"
+        cont_status_2.name = "sidecar"
         cont_status_2.state.running = True
         cont_status_2.state.terminated = False
 
-        await_pod_completion_mock.return_value.spec.containers = [sidecar, cont_status_1, cont_status_2]
+        await_pod_completion_mock.return_value.spec.containers = [cont_status_1, cont_status_2]
         await_pod_completion_mock.return_value.status.phase = "Running"
         await_pod_completion_mock.return_value.status.container_statuses = [cont_status_1, cont_status_2]
-        await_pod_completion_mock.return_value.metadata.name = "pod-with-istio-sidecar"
+        await_pod_completion_mock.return_value.metadata.name = "pod-with-sidecar"
         await_pod_completion_mock.return_value.metadata.namespace = "default"
 
-        find_pod_mock.return_value.spec.containers = [sidecar, cont_status_1, cont_status_2]
+        find_pod_mock.return_value.spec.containers = [cont_status_1, cont_status_2]
         find_pod_mock.return_value.status.phase = "Running"
         find_pod_mock.return_value.status.container_statuses = [cont_status_1, cont_status_2]
-        find_pod_mock.return_value.metadata.name = "pod-with-istio-sidecar"
+        find_pod_mock.return_value.metadata.name = "pod-with-sidecar"
         find_pod_mock.return_value.metadata.namespace = "default"
 
         k = KubernetesPodOperator(task_id="task", **task_kwargs)
@@ -761,7 +752,6 @@ class TestKubernetesPodOperator:
             k.execute(context=context)
 
         if expect_to_delete_pod:
-            assert k.is_istio_enabled(find_pod_mock.return_value)
             delete_pod_mock.assert_called_with(await_pod_completion_mock.return_value)
         else:
             delete_pod_mock.assert_not_called()
@@ -2069,10 +2059,17 @@ class TestKubernetesPodOperatorAsync:
             (False, r"Pod task-.* returned a failure.(?!\nremote_pod:)"),
         ],
     )
-    def test_cleanup_log_pod_spec_on_failure(self, log_pod_spec_on_failure, expect_match):
+    @patch("airflow.providers.cncf.kubernetes.utils.pod_manager.container_is_succeeded")
+    def test_cleanup_log_pod_spec_on_failure(
+        self,
+        log_pod_spec_on_failure,
+        expect_match,
+        container_is_succeeded,
+    ):
+        container_is_succeeded.return_value = False
+
         k = KubernetesPodOperator(task_id="task", log_pod_spec_on_failure=log_pod_spec_on_failure)
         pod = k.build_pod_request_obj(create_context(k))
-        pod.status = V1PodStatus(phase=PodPhase.FAILED)
         with pytest.raises(AirflowException, match=expect_match):
             k.cleanup(pod, pod)
 
