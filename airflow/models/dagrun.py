@@ -195,6 +195,20 @@ class DagRun(Base, LoggingMixin):
     )
     note = association_proxy("dag_run_note", "content", creator=_creator_note)
 
+    creating_job = relationship(
+        "Job",
+        back_populates="dag_runs",
+        uselist=False,
+        primaryjoin="Job.id == foreign(DagRun.creating_job_id)",
+    )
+    serialized_dag = relationship(
+        "SerializedDagModel",
+        back_populates="dag_runs",
+        primaryjoin="SerializedDagModel.dag_id == foreign(DagRun.dag_id)",
+        uselist=False,
+        innerjoin=True,
+    )
+
     DEFAULT_DAGRUNS_TO_EXAMINE = airflow_conf.getint(
         "scheduler",
         "max_dagruns_per_loop_to_schedule",
