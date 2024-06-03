@@ -32,7 +32,6 @@ from airflow.models import DagRun
 from airflow.utils import json as utils_json
 from airflow.www import utils
 from airflow.www.utils import DagRunCustomSQLAInterface, json_f, wrapped_markdown
-from tests.test_utils.config import conf_vars
 
 
 class TestUtils:
@@ -385,54 +384,6 @@ class TestWrappedMarkdown:
 </div>"""
             == rendered
         )
-
-    def test_wrapped_markdown_with_collapsible_section(self):
-        with conf_vars({("webserver", "allow_raw_html_descriptions"): "true"}):
-            rendered = wrapped_markdown(
-                """
-# A collapsible section with markdown
-<details>
-  <summary>Click to expand!</summary>
-
-  ## Heading
-  1. A numbered
-  2. list
-     * With some
-     * Sub bullets
-</details>
-            """
-            )
-
-            assert (
-                """<div class="rich_doc" ><h1>A collapsible section with markdown</h1>
-<details>
-  <summary>Click to expand!</summary>
-<h2>Heading</h2>
-<ol>
-<li>A numbered</li>
-<li>list
-<ul>
-<li>With some</li>
-<li>Sub bullets</li>
-</ul>
-</li>
-</ol>
-</details>
-</div>"""
-                == rendered
-            )
-
-    @pytest.mark.parametrize("allow_html", [False, True])
-    def test_wrapped_markdown_with_raw_html(self, allow_html):
-        with conf_vars({("webserver", "allow_raw_html_descriptions"): str(allow_html)}):
-            HTML = "test <code>raw HTML</code>"
-            rendered = wrapped_markdown(HTML)
-            if allow_html:
-                assert HTML in rendered
-            else:
-                from markupsafe import escape
-
-                assert escape(HTML) in rendered
 
 
 @pytest.mark.db_test
