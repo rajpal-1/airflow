@@ -234,6 +234,14 @@ const config = {
           flatten: true,
         },
         {
+          from: "node_modules/jquery-ui/dist/jquery-ui.min.js",
+          flatten: true,
+        },
+        {
+          from: "node_modules/jquery-ui/dist/themes/base/jquery-ui.min.css",
+          flatten: true,
+        },
+        {
           from: "node_modules/eonasdan-bootstrap-datetimepicker/build/js/bootstrap-datetimepicker.min.js",
           flatten: true,
         },
