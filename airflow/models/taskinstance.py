@@ -41,6 +41,7 @@ import pendulum
 from deprecated import deprecated
 from jinja2 import TemplateAssertionError, UndefinedError
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -338,13 +339,32 @@ def _run_raw_task(
         finally:
             # Print a marker post execution for internals of post task processing
             log.info("::group::Post task execution logs")
-
             Stats.incr(
                 f"ti.finish.{ti.dag_id}.{ti.task_id}.{ti.state}",
                 tags=ti.stats_tags,
             )
             # Same metric with tagging
             Stats.incr("ti.finish", tags={**ti.stats_tags, "state": str(ti.state)})
+
+            if TYPE_CHECKING:
+                assert session
+
+            if ti.state in State.finished and any(
+                t.blocked_by_upstream
+                for t in ti.get_dagrun(session=session).get_task_instances(session=session)
+            ):
+                downstream_task_ids = ti.task.get_direct_relative_ids(upstream=False)
+                # Skip locked TIs when updating the blocked_by_upstream flag
+                query = session.scalars(
+                    with_row_locks(
+                        select(TaskInstance).where(TaskInstance.task_id.in_(downstream_task_ids)),
+                        of=TaskInstance,
+                        session=session,
+                        skip_locked=True,
+                    )
+                )
+                for downstream_ti in query:
+                    downstream_ti.blocked_by_upstream = False
 
         # Recording SKIPPED or SUCCESS
         ti.clear_next_method_args()
@@ -823,6 +843,7 @@ def _set_ti_attrs(target, source):
     target.trigger_id = source.trigger_id
     target.next_method = source.next_method
     target.next_kwargs = source.next_kwargs
+    target.blocked_by_upstream = source.blocked_by_upstream
 
 
 def _refresh_from_db(
@@ -1772,6 +1793,7 @@ class TaskInstance(Base, LoggingMixin):
     _task_display_property_value = Column("task_display_name", String(2000), nullable=True)
     # If adding new fields here then remember to add them to
     # refresh_from_db() or they won't display in the UI correctly
+    blocked_by_upstream = Column(Boolean, default=False)
 
     __table_args__ = (
         Index("ti_dag_state", dag_id, state),
@@ -2518,11 +2540,14 @@ class TaskInstance(Base, LoggingMixin):
                 dep_status.dep_name,
                 dep_status.reason,
             )
+            if dep_status.dep_name == "Trigger Rule":
+                self.blocked_by_upstream = True
 
         if failed:
             return False
 
         verbose_aware_logger("Dependencies all met for dep_context=%s ti=%s", dep_context.description, self)
+        self.blocked_by_upstream = False
         return True
 
     @provide_session
