@@ -166,6 +166,7 @@ class TestClearTasks:
         )
         ti0, ti1 = sorted(dr.task_instances, key=lambda ti: ti.task_id)
         dr.last_scheduling_decision = DEFAULT_DATE
+        dr.next_schedulable = DEFAULT_DATE
         ti0.state = TaskInstanceState.SUCCESS
         ti1.state = TaskInstanceState.SUCCESS
         session = dag_maker.session
@@ -187,6 +188,8 @@ class TestClearTasks:
         assert dr.state == state
         assert dr.start_date is None if state == DagRunState.QUEUED else dr.start_date
         assert dr.last_scheduling_decision == last_scheduling
+        # clearing sets the next_schedulable to the current time of clear
+        assert dr.next_schedulable
 
     @pytest.mark.parametrize("state", [DagRunState.QUEUED, DagRunState.RUNNING])
     def test_clear_task_instances_on_running_dr(self, state, dag_maker):
@@ -206,6 +209,8 @@ class TestClearTasks:
         )
         ti0, ti1 = sorted(dr.task_instances, key=lambda ti: ti.task_id)
         dr.last_scheduling_decision = DEFAULT_DATE
+        # nullify next_schedulable
+        dr.next_schedulable = None
         ti0.state = TaskInstanceState.SUCCESS
         ti1.state = TaskInstanceState.SUCCESS
         session = dag_maker.session
@@ -216,6 +221,7 @@ class TestClearTasks:
         # but it works for our case because we specifically constructed test DAGS
         # in the way that those two sort methods are equivalent
         qry = session.query(TI).filter(TI.dag_id == dag.dag_id).order_by(TI.task_id).all()
+        # clearing should set next_schedulable
         clear_task_instances(qry, session, dag=dag)
         session.flush()
 
@@ -227,9 +233,11 @@ class TestClearTasks:
         if state == DagRunState.RUNNING:
             assert dr.start_date
         assert dr.last_scheduling_decision == DEFAULT_DATE
+        # previously None, set by clearing
+        assert dr.next_schedulable
 
     @pytest.mark.parametrize(
-        ["state", "last_scheduling"],
+        ["state", "last_scheduling_decision"],
         [
             (DagRunState.SUCCESS, None),
             (DagRunState.SUCCESS, DEFAULT_DATE),
@@ -237,7 +245,7 @@ class TestClearTasks:
             (DagRunState.FAILED, DEFAULT_DATE),
         ],
     )
-    def test_clear_task_instances_on_finished_dr(self, state, last_scheduling, dag_maker):
+    def test_clear_task_instances_on_finished_dr(self, state, last_scheduling_decision, dag_maker):
         """Test that DagRun state, start_date and last_scheduling_decision
         are changed after clearing TI in a finished DagRun.
         """
@@ -253,7 +261,7 @@ class TestClearTasks:
             run_type=DagRunType.SCHEDULED,
         )
         ti0, ti1 = sorted(dr.task_instances, key=lambda ti: ti.task_id)
-        dr.last_scheduling_decision = DEFAULT_DATE
+        dr.last_scheduling_decision = dr.next_schedulable = DEFAULT_DATE
         ti0.state = TaskInstanceState.SUCCESS
         ti1.state = TaskInstanceState.SUCCESS
         session = dag_maker.session
@@ -264,6 +272,7 @@ class TestClearTasks:
         # but it works for our case because we specifically constructed test DAGS
         # in the way that those two sort methods are equivalent
         qry = session.query(TI).filter(TI.dag_id == dag.dag_id).order_by(TI.task_id).all()
+        # clearing sets next schedulable date
         clear_task_instances(qry, session, dag=dag)
         session.flush()
 

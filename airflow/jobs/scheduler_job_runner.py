@@ -783,6 +783,9 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
                 self.log.info("Setting external_id for %s to %s", ti, info)
                 continue
 
+            if ti.state in State.finished:
+                ti.dag_run.activate_scheduling()
+
             msg = (
                 "TaskInstance Finished: dag_id=%s, task_id=%s, run_id=%s, map_index=%s, "
                 "run_start_date=%s, run_end_date=%s, "
@@ -1138,6 +1141,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
                 self._create_dagruns_for_dags(guard, session)
 
             self._start_queued_dagruns(session)
+            self._start_deactivated_dagruns(session)
             guard.commit()
             dag_runs = self._get_next_dagruns_to_examine(DagRunState.RUNNING, session)
             # Bulk fetch the currently active dag runs for the dags we are
@@ -1481,6 +1485,27 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
                 _update_state(dag, dag_run)
                 dag_run.notify_dagrun_state_changed()
 
+    def _start_deactivated_dagruns(self, session: Session) -> None:
+        """Find deactivated DagRuns and decide activating them."""
+        tis = session.scalars(
+            select(TI).join(TI.dag_run).where(TI.state == TaskInstanceState.UP_FOR_RETRY)
+        ).all()
+        self.log.debug("Checking for DagRuns ready for scheduling")
+        drs = set()
+        for ti in tis:
+            if ti.dag_run in drs:
+                continue
+            # Get task from the Serialized DAG
+            try:
+                dag = self.dagbag.get_dag(ti.dag_id, session=session)
+                ti.task = dag.get_task(ti.task_id)
+            except Exception:
+                continue
+            if not ti.is_premature:
+                ti.dag_run.activate_scheduling()
+                session.merge(ti.dag_run)
+                drs.add(ti.dag_run)
+
     @retry_db_transaction
     def _schedule_all_dag_runs(
         self,
@@ -1556,11 +1581,15 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         if not self._verify_integrity_if_dag_changed(dag_run=dag_run, session=session):
             self.log.warning("The DAG disappeared before verifying integrity: %s. Skipping.", dag_run.dag_id)
             return callback
-        # TODO[HA]: Rename update_state -> schedule_dag_run, ?? something else?
-        schedulable_tis, callback_to_run = dag_run.update_state(session=session, execute_callbacks=False)
 
         if self._should_update_dag_next_dagruns(dag, dag_model, last_dag_run=dag_run, session=session):
             dag_model.calculate_dagrun_date_fields(dag, dag.get_run_data_interval(dag_run))
+        if not dag_run.next_schedulable:
+            return callback
+
+        # TODO[HA]: Rename update_state -> schedule_dag_run, ?? something else?
+        schedulable_tis, callback_to_run = dag_run.update_state(session=session, execute_callbacks=False)
+
         # This will do one query per dag run. We "could" build up a complex
         # query to update all the TIs across all the execution dates and dag
         # IDs in a single query, but it turns out that can be _very very slow_

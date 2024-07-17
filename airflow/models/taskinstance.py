@@ -480,6 +480,8 @@ def clear_task_instances(
             ti.external_executor_id = None
             ti.clear_next_method_args()
             session.merge(ti)
+        if not dag_run_state:
+            ti.dag_run.activate_scheduling()
         task_id_by_key[ti.dag_id][ti.run_id][ti.map_index][ti.try_number].add(ti.task_id)
 
     if task_id_by_key:
@@ -555,8 +557,11 @@ def clear_task_instances(
                 dr.start_date = timezone.utcnow()
                 if dag_run_state == DagRunState.QUEUED:
                     dr.last_scheduling_decision = None
+                    dr.activate_scheduling()
                     dr.start_date = None
                     dr.clear_number += 1
+            else:
+                dr.activate_scheduling()
     session.flush()
 
 
@@ -2518,6 +2523,8 @@ class TaskInstance(Base, LoggingMixin):
                 dep_status.dep_name,
                 dep_status.reason,
             )
+            if dep_status.dep_name == "Trigger Rule" and self.state != TaskInstanceState.UP_FOR_RETRY:
+                self.dag_run.deactivate_scheduling()
 
         if failed:
             return False

@@ -135,6 +135,8 @@ class DagRun(Base, LoggingMixin):
     data_interval_end = Column(UtcDateTime)
     # When a scheduler last attempted to schedule TIs for this DagRun
     last_scheduling_decision = Column(UtcDateTime)
+    # When next a scheduler would attempt to schedule TIs for this DagRun
+    next_schedulable = Column(UtcDateTime, default=timezone.utcnow)
     dag_hash = Column(String(32))
     # Foreign key to LogTemplate. DagRun rows created prior to this column's
     # existence have this set to NULL. Later rows automatically populate this on
@@ -257,6 +259,12 @@ class DagRun(Base, LoggingMixin):
                 f"The run_id provided '{run_id}' does not match the pattern '{regex}' or '{RUN_ID_REGEX}'"
             )
         return run_id
+
+    def deactivate_scheduling(self):
+        self.next_schedulable = None
+
+    def activate_scheduling(self):
+        self.next_schedulable = timezone.utcnow()
 
     @property
     def stats_tags(self) -> dict[str, str]:
@@ -413,9 +421,9 @@ class DagRun(Base, LoggingMixin):
             # For dag runs in the queued state, we check if they have reached the max_active_runs limit
             # and if so we drop them
             running_drs = (
-                select(DagRun.dag_id, func.count(DagRun.state).label("num_running"))
-                .where(DagRun.state == DagRunState.RUNNING)
-                .group_by(DagRun.dag_id)
+                select(cls.dag_id, func.count(cls.state).label("num_running"))
+                .where(cls.state == DagRunState.RUNNING)
+                .group_by(cls.dag_id)
                 .subquery()
             )
             query = query.outerjoin(running_drs, running_drs.c.dag_id == DagRun.dag_id).where(
@@ -427,7 +435,7 @@ class DagRun(Base, LoggingMixin):
         )
 
         if not settings.ALLOW_FUTURE_EXEC_DATES:
-            query = query.where(DagRun.execution_date <= func.now())
+            query = query.where(cls.execution_date <= func.now())
 
         return session.scalars(
             with_row_locks(query.limit(max_number), of=cls, session=session, skip_locked=True)
@@ -1052,6 +1060,7 @@ class DagRun(Base, LoggingMixin):
             if TYPE_CHECKING:
                 assert schedulable.task
             old_state = schedulable.state
+
             if not schedulable.are_dependencies_met(session=session, dep_context=dep_context):
                 old_states[schedulable.key] = old_state
                 continue
