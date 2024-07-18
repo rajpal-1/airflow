@@ -3021,6 +3021,13 @@ class BigQueryInsertJobOperator(GoogleCloudBaseOperator, _BigQueryOpenLineageMix
         # Wait for the job to complete
         if not self.deferrable:
             job.result(timeout=self.result_timeout, retry=self.result_retry)
+            while True:
+                if job.state == "DONE":
+                    break
+                else:
+                    import time
+
+                    time.sleep(5)
             self._handle_job_error(job)
 
             return self.job_id
