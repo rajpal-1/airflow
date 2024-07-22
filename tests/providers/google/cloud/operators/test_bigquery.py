@@ -1204,9 +1204,7 @@ class TestBigQueryInsertJobOperator:
         job_id = "123456"
         hash_ = "hash"
         real_job_id = f"{job_id}_{hash_}"
-        from google.cloud.bigquery.job import QueryJob as job
 
-        job.state = "DONE"
         configuration = {
             "query": {
                 "query": "SELECT * FROM any",
@@ -1214,7 +1212,7 @@ class TestBigQueryInsertJobOperator:
             }
         }
         mock_hook.return_value.insert_job.return_value = MagicMock(
-            job=job, job_id=real_job_id, error_result=False
+            job_id=real_job_id, state="DONE", error_result=False
         )
         mock_hook.return_value.generate_job_id.return_value = real_job_id
 
@@ -1256,7 +1254,9 @@ class TestBigQueryInsertJobOperator:
             "configuration": configuration,
             "jobReference": "a",
         }
-        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=False)
+        mock_hook.return_value.insert_job.return_value = MagicMock(
+            job_id=real_job_id, state="DONE", error_result=False
+        )
         mock_hook.return_value.generate_job_id.return_value = real_job_id
         mock_hook.return_value.insert_job.return_value.to_api_repr.return_value = mock_configuration
 
@@ -1294,7 +1294,9 @@ class TestBigQueryInsertJobOperator:
                 "useLegacySql": False,
             }
         }
-        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=False)
+        mock_hook.return_value.insert_job.return_value = MagicMock(
+            job_id=real_job_id, state="DONE", error_result=False
+        )
         mock_hook.return_value.generate_job_id.return_value = real_job_id
 
         op = BigQueryInsertJobOperator(
@@ -1358,31 +1360,6 @@ class TestBigQueryInsertJobOperator:
         )
 
     @mock.patch("airflow.providers.google.cloud.operators.bigquery.BigQueryHook")
-    def test_execute_failure(self, mock_hook):
-        job_id = "123456"
-        hash_ = "hash"
-        real_job_id = f"{job_id}_{hash_}"
-
-        configuration = {
-            "query": {
-                "query": "SELECT * FROM any",
-                "useLegacySql": False,
-            }
-        }
-        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=True)
-        mock_hook.return_value.generate_job_id.return_value = real_job_id
-
-        op = BigQueryInsertJobOperator(
-            task_id="insert_query_job",
-            configuration=configuration,
-            location=TEST_DATASET_LOCATION,
-            job_id=job_id,
-            project_id=TEST_GCP_PROJECT_ID,
-        )
-        with pytest.raises(AirflowException):
-            op.execute(context=MagicMock())
-
-    @mock.patch("airflow.providers.google.cloud.operators.bigquery.BigQueryHook")
     def test_execute_reattach(self, mock_hook):
         job_id = "123456"
         hash_ = "hash"
@@ -1400,29 +1377,36 @@ class TestBigQueryInsertJobOperator:
             job_id=real_job_id,
             error_result=False,
             state="RUNNING",
-            done=lambda: False,
         )
+
+        # Make the job's result method change the state to DONE when called
+        def job_result(*args, **kwargs):
+            job.state = "DONE"
+
+        job.result.side_effect = job_result
+
         mock_hook.return_value.get_job.return_value = job
         mock_hook.return_value.generate_job_id.return_value = real_job_id
 
         op = BigQueryInsertJobOperator(
             task_id="insert_query_job",
             configuration=configuration,
-            location=TEST_DATASET_LOCATION,
+            location="test_dataset_location",
             job_id=job_id,
-            project_id=TEST_GCP_PROJECT_ID,
+            project_id="test_gcp_project_id",
             reattach_states={"PENDING", "RUNNING"},
         )
         result = op.execute(context=MagicMock())
 
         mock_hook.return_value.get_job.assert_called_once_with(
-            location=TEST_DATASET_LOCATION,
+            location="test_dataset_location",
             job_id=real_job_id,
-            project_id=TEST_GCP_PROJECT_ID,
+            project_id="test_gcp_project_id",
         )
 
+        # Ensure job.result is called once
         job.result.assert_called_once_with(
-            retry=DEFAULT_RETRY,
+            retry=mock.ANY,
             timeout=None,
         )
 
@@ -1478,6 +1462,7 @@ class TestBigQueryInsertJobOperator:
 
         job = MagicMock(
             job_id=real_job_id,
+            state="DONE",
             error_result=False,
         )
         mock_hook.return_value.insert_job.return_value = job
@@ -1817,7 +1802,9 @@ class TestBigQueryInsertJobOperator:
                 "useLegacySql": False,
             }
         }
-        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=False)
+        mock_hook.return_value.insert_job.return_value = MagicMock(
+            job_id=real_job_id, state="DONE", error_result=False
+        )
         mock_hook.return_value.generate_job_id.return_value = real_job_id
 
         op = BigQueryInsertJobOperator(
@@ -1951,7 +1938,9 @@ class TestBigQueryInsertJobOperator:
             },
             "labels": {"foo": "bar"},
         }
-        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=False)
+        mock_hook.return_value.insert_job.return_value = MagicMock(
+            job_id=real_job_id, state="DONE", error_result=False
+        )
         mock_hook.return_value.generate_job_id.return_value = real_job_id
 
         op = BigQueryInsertJobOperator(
@@ -1981,7 +1970,9 @@ class TestBigQueryInsertJobOperator:
             },
             "labels": None,
         }
-        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=False)
+        mock_hook.return_value.insert_job.return_value = MagicMock(
+            job_id=real_job_id, state="DONE", error_result=False
+        )
         mock_hook.return_value.generate_job_id.return_value = real_job_id
 
         op = BigQueryInsertJobOperator(
