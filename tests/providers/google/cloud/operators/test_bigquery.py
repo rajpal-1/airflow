@@ -1204,14 +1204,15 @@ class TestBigQueryInsertJobOperator:
         job_id = "123456"
         hash_ = "hash"
         real_job_id = f"{job_id}_{hash_}"
-
+        from google.cloud.bigquery.job import QueryJob as job
+        job.state="DONE"
         configuration = {
             "query": {
                 "query": "SELECT * FROM any",
                 "useLegacySql": False,
             }
         }
-        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=False)
+        mock_hook.return_value.insert_job.return_value = MagicMock(spec=job, job_id=real_job_id, error_result=False)
         mock_hook.return_value.generate_job_id.return_value = real_job_id
 
         op = BigQueryInsertJobOperator(
