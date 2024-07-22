@@ -1360,6 +1360,31 @@ class TestBigQueryInsertJobOperator:
         )
 
     @mock.patch("airflow.providers.google.cloud.operators.bigquery.BigQueryHook")
+    def test_execute_failure(self, mock_hook):
+        job_id = "123456"
+        hash_ = "hash"
+        real_job_id = f"{job_id}_{hash_}"
+
+        configuration = {
+            "query": {
+                "query": "SELECT * FROM any",
+                "useLegacySql": False,
+            }
+        }
+        mock_hook.return_value.insert_job.return_value = MagicMock(job_id=real_job_id, error_result=True)
+        mock_hook.return_value.generate_job_id.return_value = real_job_id
+
+        op = BigQueryInsertJobOperator(
+            task_id="insert_query_job",
+            configuration=configuration,
+            location=TEST_DATASET_LOCATION,
+            job_id=job_id,
+            project_id=TEST_GCP_PROJECT_ID,
+        )
+        with pytest.raises(AirflowException):
+            op.execute(context=MagicMock())
+
+    @mock.patch("airflow.providers.google.cloud.operators.bigquery.BigQueryHook")
     def test_execute_reattach(self, mock_hook):
         job_id = "123456"
         hash_ = "hash"
@@ -1391,25 +1416,23 @@ class TestBigQueryInsertJobOperator:
         op = BigQueryInsertJobOperator(
             task_id="insert_query_job",
             configuration=configuration,
-            location="test_dataset_location",
+            location=TEST_DATASET_LOCATION,
             job_id=job_id,
-            project_id="test_gcp_project_id",
+            project_id=TEST_GCP_PROJECT_ID,
             reattach_states={"PENDING", "RUNNING"},
         )
         result = op.execute(context=MagicMock())
 
         mock_hook.return_value.get_job.assert_called_once_with(
-            location="test_dataset_location",
+            location=TEST_DATASET_LOCATION,
             job_id=real_job_id,
-            project_id="test_gcp_project_id",
+            project_id=TEST_GCP_PROJECT_ID,
         )
 
-        # Ensure job.result is called once
         job.result.assert_called_once_with(
-            retry=mock.ANY,
+            retry=DEFAULT_RETRY,
             timeout=None,
         )
-
         assert result == real_job_id
 
     @mock.patch("airflow.providers.google.cloud.operators.bigquery.BigQueryHook")
