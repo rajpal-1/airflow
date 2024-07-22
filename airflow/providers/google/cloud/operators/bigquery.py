@@ -3028,7 +3028,6 @@ class BigQueryInsertJobOperator(GoogleCloudBaseOperator, _BigQueryOpenLineageMix
                     import time
                     time.sleep(5)
                     job.result(timeout=self.result_timeout, retry=self.result_retry)
-                    continue
             self._handle_job_error(job)
 
             return self.job_id
