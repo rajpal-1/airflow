@@ -78,7 +78,7 @@
         "defaultAirflowTag": {
             "description": "Default airflow tag to deploy.",
             "type": "string",
-            "default": "2.9.2",
+            "default": "2.9.3",
             "x-docsSection": "Common"
         },
         "defaultAirflowDigest": {
@@ -93,7 +93,7 @@
         "airflowVersion": {
             "description": "Airflow version (Used to make some decisions based on Airflow Version being deployed).",
             "type": "string",
-            "default": "2.9.2",
+            "default": "2.9.3",
             "x-docsSection": "Common"
         },
         "securityContext": {
@@ -3362,6 +3362,11 @@
                             "description": "Query to use for KEDA autoscaling. Must return a single integer.",
                             "type": "string",
                             "default": "SELECT ceil(COUNT(*)::decimal / {{ .Values.config.triggerer.default_capacity }}) FROM trigger"
+                        },
+                        "usePgbouncer": {
+                            "description": "Whether to use PGBouncer to connect to the database or not when it is enabled. This configuration will be ignored if PGBouncer is not enabled.",
+                            "type": "boolean",
+                            "default": false
                         }
                     }
                 }
@@ -3930,6 +3935,14 @@
                         "$ref": "#/definitions/io.k8s.api.core.v1.Container"
                     }
                 },
+                "extraInitContainers": {
+                    "description": "Add additional init containers into create user job pod (templated).",
+                    "items": {
+                        "$ref": "#/definitions/io.k8s.api.core.v1.Container"
+                    },
+                    "type": "array",
+                    "default": []
+                },
                 "extraVolumes": {
                     "description": "Mount additional volumes into create user job",
                     "type": "array",
@@ -4271,6 +4284,14 @@
                             }
                         }
                     ]
+                },
+                "extraInitContainers": {
+                    "description": "Add additional init containers into migrate database job (templated).",
+                    "items": {
+                        "$ref": "#/definitions/io.k8s.api.core.v1.Container"
+                    },
+                    "type": "array",
+                    "default": []
                 },
                 "extraContainers": {
                     "description": "Launch additional containers for the migrate database job pod",
@@ -8505,6 +8526,18 @@
                                     "name": "GIT_SYNC_TIMEOUT",
                                     "value": "60"
                                 }
+                            ]
+                        },
+                        "envFrom": {
+                            "description": "Extra envFrom 'items' that will be added to the definition of Airflow gitSync containers; a string or array are expected (can be templated).",
+                            "type": [
+                                "null",
+                                "string"
+                            ],
+                            "default": null,
+                            "examples": [
+                                "- secretRef:\n    name: 'proxy-config",
+                                "- configMapRef:\n    name: 'proxy-config"
                             ]
                         },
                         "resources": {

@@ -513,6 +513,19 @@ core:
       type: string
       default: ~
       example: 'http://localhost:8080'
+    internal_api_secret_key:
+      description: |
+        Secret key used to authenticate internal API clients to core. It should be as random as possible.
+        However, when running more than 1 instances of webserver / internal API services, make sure all
+        of them use the same ``secret_key`` otherwise calls will fail on authentication.
+        The authentication token generated using the secret key has a short expiry time though - make
+        sure that time on ALL the machines that you run airflow components on is synchronized
+        (for example using ntpd) otherwise you might get "forbidden" errors when the logs are accessed.
+      version_added: 2.10.0
+      type: string
+      sensitive: true
+      example: ~
+      default: "{SECRET_KEY}"
     test_connection:
       description: |
         The ability to allow testing connections across Airflow UI, API and CLI.
@@ -1687,6 +1700,9 @@ webserver:
 
             When using ``gevent`` you might also want to set the ``_AIRFLOW_PATCH_GEVENT``
             environment variable to ``"1"`` to make sure gevent patching is done as early as possible.
+
+            Be careful to set ``_AIRFLOW_PATCH_GEVENT`` only on the web server as gevent patching may
+            affect the scheduler behavior via the ``multiprocessing`` sockets module and cause crash.
 
             See related Issues / PRs for more details:
 

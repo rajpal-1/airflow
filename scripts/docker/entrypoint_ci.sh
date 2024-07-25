@@ -123,8 +123,10 @@ function environment_initialization() {
     if [[ ${DATABASE_ISOLATION=} == "true" ]]; then
         echo "${COLOR_BLUE}Force database isolation configuration:${COLOR_RESET}"
         export AIRFLOW__CORE__DATABASE_ACCESS_ISOLATION=True
-        export AIRFLOW__CORE__INTERNAL_API_URL=http://localhost:8080
-        export AIRFLOW__WEBSERVER_RUN_INTERNAL_API=True
+        export AIRFLOW__CORE__INTERNAL_API_URL=http://localhost:9080
+        # some random secret key - used in tests
+        export AIRFLOW__CORE__INTERNAL_API_SECRET_KEY="Z27xjUwQTz4txlWZyJzLqg=="
+        export RUN_TESTS_WITH_DATABASE_ISOLATION="true"
     fi
 
     RUN_TESTS=${RUN_TESTS:="false"}
@@ -237,11 +239,15 @@ function check_boto_upgrade() {
     echo
     # shellcheck disable=SC2086
     ${PACKAGING_TOOL_CMD} uninstall ${EXTRA_UNINSTALL_FLAGS} aiobotocore s3fs || true
-    # We need to include oss2 as dependency as otherwise jmespath will be bumped and it will not pass
-    # the pip check test, Similarly gcloud-aio-auth limit is needed to be included as it bumps cryptography
+    # We need to include few dependencies to pass pip check with other dependencies:
+    #   * oss2 as dependency as otherwise jmespath will be bumped (sync with alibaba provider)
+    #   * gcloud-aio-auth limit is needed to be included as it bumps cryptography (sync with google provider)
+    #   * requests needs to be limited to be compatible with apache beam (sync with apache-beam provider)
+    set -x
     # shellcheck disable=SC2086
     ${PACKAGING_TOOL_CMD} install ${EXTRA_INSTALL_FLAGS} --upgrade boto3 botocore \
-       "oss2>=2.14.0" "gcloud-aio-auth>=4.0.0,<5.0.0"
+       "oss2>=2.14.0" "gcloud-aio-auth>=4.0.0,<5.0.0" "requests!=2.32.*,<3.0.0,>=2.24.0"
+    set +x
     pip check
 }
 
@@ -330,6 +336,32 @@ function check_run_tests() {
        # Plain asserts should be converted to env variable to make sure they are taken into account
        # otherwise they will not be effective during test collection when plain assert is breaking collection
        export PYTEST_PLAIN_ASSERTS="true"
+    fi
+
+    if [[ ${DATABASE_ISOLATION=} == "true" ]]; then
+        echo "${COLOR_BLUE}Starting internal API server:${COLOR_RESET}"
+        # We need to start the internal API server before running tests
+        airflow db migrate
+        airflow internal-api >"${AIRFLOW_HOME}/logs/internal-api.log" 2>&1 &
+        echo
+        echo -n "${COLOR_YELLOW}Waiting for internal API server to listen on 9080. ${COLOR_RESET}"
+        echo
+        for _ in $(seq 1 40)
+        do
+            sleep 0.5
+            nc -z localhost 9080 && echo && echo "${COLOR_GREEN}Internal API server started!!${COLOR_RESET}" && break
+            echo -n "."
+        done
+        if ! nc -z localhost 9080; then
+            echo
+            echo "${COLOR_RED}Internal API server did not start in 20 seconds!!${COLOR_RESET}"
+            echo
+            echo "${COLOR_BLUE}Logs:${COLOR_RESET}"
+            echo
+            cat "${AIRFLOW_HOME}/logs/internal-api.log"
+            echo
+            exit 1
+        fi
     fi
 
     if [[ ${RUN_SYSTEM_TESTS:="false"} == "true" ]]; then
