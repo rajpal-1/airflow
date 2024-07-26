@@ -99,9 +99,13 @@ from airflow.utils.types import DagRunType
 from airflow.utils.xcom import XCOM_RETURN_KEY
 from tests.models import DEFAULT_DATE, TEST_DAGS_FOLDER
 from tests.test_utils import db
+from tests.test_utils.compat import AIRFLOW_V_2_10_PLUS
 from tests.test_utils.config import conf_vars
 from tests.test_utils.db import clear_db_connections, clear_db_runs
 from tests.test_utils.mock_operators import MockOperator
+
+if AIRFLOW_V_2_10_PLUS:
+    from airflow.utils.types import DagRunTriggeredByType
 
 pytestmark = pytest.mark.db_test
 
@@ -1703,7 +1707,13 @@ class TestTaskInstance:
         assert ti.xcom_pull(task_ids="test_xcom", key=key) == value
         ti.run()
         exec_date += datetime.timedelta(days=1)
-        dr = ti.task.dag.create_dagrun(run_id="test2", data_interval=(exec_date, exec_date), state=None)
+        triggered_by_kwargs = {"triggered_by": DagRunTriggeredByType.TEST} if AIRFLOW_V_2_10_PLUS else {}
+        dr = ti.task.dag.create_dagrun(
+            run_id="test2",
+            data_interval=(exec_date, exec_date),
+            state=None,
+            **triggered_by_kwargs,
+        )
         ti = TI(task=ti.task, run_id=dr.run_id)
         ti.run()
         # We have set a new execution date (and did not pass in
@@ -1937,12 +1947,14 @@ class TestTaskInstance:
         )
 
         execution_date = DEFAULT_DATE + datetime.timedelta(days=1)
+        triggered_by_kwargs = {"triggered_by": DagRunTriggeredByType.TEST} if AIRFLOW_V_2_10_PLUS else {}
         dr = ti1.task.dag.create_dagrun(
             execution_date=execution_date,
             state=None,
             run_id="2",
             session=session,
             data_interval=(execution_date, execution_date),
+            **triggered_by_kwargs,
         )
         assert ti1 in session
         ti2 = dr.task_instances[0]
@@ -3040,6 +3052,7 @@ class TestTaskInstance:
 
         day_1 = DEFAULT_DATE
         day_2 = DEFAULT_DATE + datetime.timedelta(days=1)
+        triggered_by_kwargs = {"triggered_by": DagRunTriggeredByType.TEST} if AIRFLOW_V_2_10_PLUS else {}
 
         # Create a DagRun for day_1 and day_2. Calling ti_2.get_previous_start_date()
         # should return the start_date of ti_1 (which is None because ti_1 was not run).
@@ -3048,6 +3061,7 @@ class TestTaskInstance:
             execution_date=day_1,
             state=State.RUNNING,
             run_type=DagRunType.MANUAL,
+            **triggered_by_kwargs,
         )
 
         dagrun_2 = dag.create_dagrun(
@@ -3055,6 +3069,7 @@ class TestTaskInstance:
             state=State.RUNNING,
             run_type=DagRunType.MANUAL,
             data_interval=(day_1, day_2),
+            **triggered_by_kwargs,
         )
 
         ti_1 = dagrun_1.get_task_instance(task.task_id)
@@ -3081,6 +3096,7 @@ class TestTaskInstance:
         session.commit()
 
         execution_date = timezone.utcnow()
+        triggered_by_kwargs = {"triggered_by": DagRunTriggeredByType.TEST} if AIRFLOW_V_2_10_PLUS else {}
         # it's easier to fake a manual run here
         dag, task1 = create_dummy_dag(
             dag_id="test_triggering_dataset_events",
@@ -3097,6 +3113,7 @@ class TestTaskInstance:
             state=None,
             session=session,
             data_interval=(execution_date, execution_date),
+            **triggered_by_kwargs,
         )
         ds1_event = DatasetEvent(dataset_id=1)
         ds2_event_1 = DatasetEvent(dataset_id=2)
@@ -3375,6 +3392,7 @@ class TestTaskInstance:
             session=session,
         )
         execution_date = timezone.utcnow()
+        triggered_by_kwargs = {"triggered_by": DagRunTriggeredByType.TEST} if AIRFLOW_V_2_10_PLUS else {}
         dr = dag.create_dagrun(
             run_id="test2",
             run_type=DagRunType.MANUAL,
@@ -3382,6 +3400,7 @@ class TestTaskInstance:
             state=None,
             session=session,
             data_interval=(execution_date, execution_date),
+            **triggered_by_kwargs,
         )
         ti1 = dr.get_task_instance(task1.task_id, session=session)
         ti1.task = task1
@@ -3520,6 +3539,7 @@ class TestTaskInstance:
             fail_stop=True,
         )
         execution_date = timezone.utcnow()
+        triggered_by_kwargs = {"triggered_by": DagRunTriggeredByType.TEST} if AIRFLOW_V_2_10_PLUS else {}
         dr = dag.create_dagrun(
             run_id="test_ff",
             run_type=DagRunType.MANUAL,
@@ -3527,6 +3547,7 @@ class TestTaskInstance:
             state=None,
             session=session,
             data_interval=(execution_date, execution_date),
+            **triggered_by_kwargs,
         )
 
         ti1 = dr.get_task_instance(task1.task_id, session=session)
