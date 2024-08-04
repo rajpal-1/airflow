@@ -170,7 +170,7 @@ class TestStreamLogWriter:
         logger.log = mock.MagicMock()
 
         log = StreamLogWriter(logger, 1)
-        assert log.encoding == "utf-8"
+        assert log.encoding == "undefined"
 
     def test_iobase_compatibility(self):
         log = StreamLogWriter(None, 1)

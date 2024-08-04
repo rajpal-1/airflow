@@ -161,7 +161,7 @@ class StreamLogWriter(TextIOBase, IO[str]):  # type: ignore[misc]
     :param level: The log level method to write to, ie. logging.DEBUG, logging.WARNING
     """
 
-    encoding = "utf-8"
+    encoding = "undefined"
 
     @property
     def mode(self):
