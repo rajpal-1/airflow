@@ -180,7 +180,7 @@ class TestStreamLogWriter:
         log.close()
 
     def test_textio_compatibility(self):
-        log = StreamLogWriter("logger.name", 1)
+        log = StreamLogWriter(logging.getLogger(__name__), 1)
 
         # Make sure some common operations won't fail
         assert "b" not in log.mode
