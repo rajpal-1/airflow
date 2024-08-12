@@ -82,7 +82,7 @@ import airflow.templates
 from airflow import settings, utils
 from airflow.api_internal.internal_api_call import internal_api_call
 from airflow.configuration import conf as airflow_conf, secrets_backend_list
-from airflow.datasets import BaseDataset, Dataset, DatasetAll
+from airflow.datasets import BaseDataset, Dataset, DatasetAlias, DatasetAll
 from airflow.datasets.manager import dataset_manager
 from airflow.exceptions import (
     AirflowDagInconsistent,
@@ -103,7 +103,7 @@ from airflow.models.baseoperator import BaseOperator
 from airflow.models.dagcode import DagCode
 from airflow.models.dagpickle import DagPickle
 from airflow.models.dagrun import RUN_ID_REGEX, DagRun
-from airflow.models.dataset import DatasetDagRunQueue, DatasetModel
+from airflow.models.dataset import DatasetAliasModel, DatasetDagRunQueue, DatasetModel
 from airflow.models.param import DagParam, ParamsDict
 from airflow.models.taskinstance import (
     Context,
@@ -172,7 +172,9 @@ ScheduleInterval = Union[None, str, timedelta, relativedelta]
 # but Mypy cannot handle that right now. Track progress of PEP 661 for progress.
 # See also: https://discuss.python.org/t/9126/7
 ScheduleIntervalArg = Union[ArgNotSet, ScheduleInterval]
-ScheduleArg = Union[ArgNotSet, ScheduleInterval, Timetable, BaseDataset, Collection["Dataset"]]
+ScheduleArg = Union[
+    ArgNotSet, ScheduleInterval, Timetable, BaseDataset, Collection[Union["Dataset", "DatasetAlias"]]
+]
 
 SLAMissCallback = Callable[["DAG", str, str, List["SlaMiss"], List[TaskInstance]], None]
 
@@ -303,7 +305,6 @@ def _triggerer_is_healthy():
     return job and job.is_alive()
 
 
-@internal_api_call
 @provide_session
 def _create_orm_dagrun(
     dag,
@@ -668,8 +669,8 @@ class DAG(LoggingMixin):
             self.timetable = DatasetTriggeredTimetable(schedule)
             self.schedule_interval = self.timetable.summary
         elif isinstance(schedule, Collection) and not isinstance(schedule, str):
-            if not all(isinstance(x, Dataset) for x in schedule):
-                raise ValueError("All elements in 'schedule' should be datasets")
+            if not all(isinstance(x, (Dataset, DatasetAlias)) for x in schedule):
+                raise ValueError("All elements in 'schedule' should be datasets or dataset aliases")
             self.timetable = DatasetTriggeredTimetable(DatasetAll(*schedule))
             self.schedule_interval = self.timetable.summary
         elif isinstance(schedule, ArgNotSet):
@@ -3298,6 +3299,7 @@ class DAG(LoggingMixin):
         # We can't use a set here as we want to preserve order
         outlet_datasets: dict[DatasetModel, None] = {}
         input_datasets: dict[DatasetModel, None] = {}
+        outlet_dataset_alias_models: set[DatasetAliasModel] = set()
 
         # here we go through dags and tasks to check for dataset references
         # if there are now None and previously there were some, we delete them
@@ -3314,7 +3316,14 @@ class DAG(LoggingMixin):
                     input_datasets[DatasetModel.from_public(dataset)] = None
             curr_outlet_references = curr_orm_dag and curr_orm_dag.task_outlet_dataset_references
             for task in dag.tasks:
-                dataset_outlets = [x for x in task.outlets or [] if isinstance(x, Dataset)]
+                dataset_outlets: list[Dataset] = []
+                dataset_alias_outlets: set[DatasetAlias] = set()
+                for outlet in task.outlets:
+                    if isinstance(outlet, Dataset):
+                        dataset_outlets.append(outlet)
+                    elif isinstance(outlet, DatasetAlias):
+                        dataset_alias_outlets.add(outlet)
+
                 if not dataset_outlets:
                     if curr_outlet_references:
                         this_task_outlet_refs = [
@@ -3324,9 +3333,14 @@ class DAG(LoggingMixin):
                         ]
                         for ref in this_task_outlet_refs:
                             curr_outlet_references.remove(ref)
+
                 for d in dataset_outlets:
                     outlet_references[(task.dag_id, task.task_id)].add(d.uri)
                     outlet_datasets[DatasetModel.from_public(d)] = None
+
+                for d_a in dataset_alias_outlets:
+                    outlet_dataset_alias_models.add(DatasetAliasModel.from_public(d_a))
+
         all_datasets = outlet_datasets
         all_datasets.update(input_datasets)
 
@@ -3350,6 +3364,29 @@ class DAG(LoggingMixin):
 
         del new_datasets
         del all_datasets
+
+        # store dataset aliases
+        new_dataset_alias_models: set[DatasetAliasModel] = set()
+        if outlet_dataset_alias_models:
+            outlet_dataset_alias_names = {dataset_alias.name for dataset_alias in outlet_dataset_alias_models}
+
+            stored_dataset_alias_names = session.scalars(
+                select(DatasetAliasModel.name).where(DatasetAliasModel.name.in_(outlet_dataset_alias_names))
+            ).fetchall()
+
+            if stored_dataset_alias_names:
+                new_dataset_alias_models = {
+                    dataset_alias_model
+                    for dataset_alias_model in outlet_dataset_alias_models
+                    if dataset_alias_model.name not in stored_dataset_alias_names
+                }
+            else:
+                new_dataset_alias_models = outlet_dataset_alias_models
+
+            session.add_all(new_dataset_alias_models)
+
+        del new_dataset_alias_models
+        del outlet_dataset_alias_models
 
         # reconcile dag-schedule-on-dataset references
         for dag_id, uri_list in dag_references.items():
@@ -3963,6 +4000,7 @@ class DagModel(Base):
         for ser_dag in ser_dags:
             dag_id = ser_dag.dag_id
             statuses = dag_statuses[dag_id]
+
             if not dag_ready(dag_id, cond=ser_dag.dag.timetable.dataset_condition, statuses=statuses):
                 del by_dag[dag_id]
                 del dag_statuses[dag_id]
