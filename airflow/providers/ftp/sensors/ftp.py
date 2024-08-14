@@ -21,7 +21,7 @@ import ftplib  # nosec: B402
 import re
 from typing import TYPE_CHECKING, Sequence
 
-from airflow.exceptions import AirflowSensorTimeout
+from airflow.exceptions import AirflowPokeFailException
 from airflow.providers.ftp.hooks.ftp import FTPHook, FTPSHook
 from airflow.sensors.base import BaseSensorOperator
 
@@ -83,8 +83,7 @@ class FTPSensor(BaseSensorOperator):
                 if (error_code != 550) and (
                     self.fail_on_transient_errors or (error_code not in self.transient_errors)
                 ):
-                    # TODO: replace by AirflowPokeFailException when min_airflow_version is set to at least 2.10.0
-                    raise AirflowSensorTimeout from e
+                    raise AirflowPokeFailException from e
 
                 return False
 

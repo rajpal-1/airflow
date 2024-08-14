@@ -20,7 +20,7 @@ from unittest import mock
 
 import pytest
 
-from airflow.exceptions import AirflowException, AirflowSkipException, TaskDeferred
+from airflow.exceptions import AirflowException, TaskDeferred
 from airflow.providers.amazon.aws.hooks.batch_client import BatchClientHook
 from airflow.providers.amazon.aws.sensors.batch import (
     BatchComputeEnvironmentSensor,
@@ -28,7 +28,6 @@ from airflow.providers.amazon.aws.sensors.batch import (
     BatchSensor,
 )
 from airflow.providers.amazon.aws.triggers.batch import BatchJobTrigger
-from tests.test_utils.compat import AIRFLOW_V_2_10_PLUS
 
 TASK_ID = "batch_job_sensor"
 JOB_ID = "8222a1c2-b246-4e19-b1b8-0039bb4407c0"
@@ -101,26 +100,6 @@ class TestBatchSensor:
         with pytest.raises(AirflowException):
             deferrable_batch_sensor.execute_complete(context={}, event={"status": "failure"})
 
-    def test_execute_failure_in_deferrable_mode_with_fail_policy(self):
-        """Tests that an AirflowSkipException is raised in case of error event and fail_policy is set to True"""
-
-        args = {}
-        if AIRFLOW_V_2_10_PLUS:
-            from airflow.sensors.base import FailPolicy
-
-            args["fail_policy"] = FailPolicy.SKIP_ON_TIMEOUT
-        else:
-            args["soft_fail"] = True
-        deferrable_batch_sensor = BatchSensor(
-            task_id="task", job_id=JOB_ID, region_name=AWS_REGION, deferrable=True, **args
-        )
-
-        with pytest.raises(AirflowSkipException):
-            deferrable_batch_sensor.execute_complete(context={}, event={"status": "failure"})
-
-    @pytest.mark.parametrize(
-        "catch_mode, expected_exception", ((False, AirflowException), (True, AirflowSkipException))
-    )
     @pytest.mark.parametrize(
         "state, error_message",
         (
@@ -132,28 +111,10 @@ class TestBatchSensor:
         ),
     )
     @mock.patch.object(BatchClientHook, "get_job_description")
-    def test_fail_poke(
-        self,
-        mock_get_job_description,
-        state,
-        error_message,
-        catch_mode,
-        expected_exception,
-    ):
-        args = {}
-        if AIRFLOW_V_2_10_PLUS:
-            from airflow.sensors.base import FailPolicy
-
-            if catch_mode:
-                args["fail_policy"] = FailPolicy.SKIP_ON_TIMEOUT
-            else:
-                args["fail_policy"] = FailPolicy.NONE
-        else:
-            args["soft_fail"] = catch_mode
-
+    def test_fail_poke(self, mock_get_job_description, state, error_message):
         mock_get_job_description.return_value = {"status": state}
-        batch_sensor = BatchSensor(task_id="batch_job_sensor", job_id=JOB_ID, **args)
-        with pytest.raises(expected_exception, match=error_message):
+        batch_sensor = BatchSensor(task_id="batch_job_sensor", job_id=JOB_ID)
+        with pytest.raises(AirflowException, match=error_message):
             batch_sensor.poke({})
 
 
@@ -225,9 +186,6 @@ class TestBatchComputeEnvironmentSensor:
         assert "AWS Batch compute environment failed" in str(ctx.value)
 
     @pytest.mark.parametrize(
-        "catch_mode, expected_exception", ((False, AirflowException), (True, AirflowSkipException))
-    )
-    @pytest.mark.parametrize(
         "compute_env, error_message",
         (
             (
@@ -243,28 +201,14 @@ class TestBatchComputeEnvironmentSensor:
         mock_batch_client,
         compute_env,
         error_message,
-        catch_mode,
-        expected_exception,
     ):
-        args = {}
-        if AIRFLOW_V_2_10_PLUS:
-            from airflow.sensors.base import FailPolicy
-
-            if catch_mode:
-                args["fail_policy"] = FailPolicy.SKIP_ON_TIMEOUT
-            else:
-                args["fail_policy"] = FailPolicy.NONE
-        else:
-            args["soft_fail"] = catch_mode
-
         mock_batch_client.describe_compute_environments.return_value = {"computeEnvironments": compute_env}
         batch_compute_environment_sensor = BatchComputeEnvironmentSensor(
             task_id="test_batch_compute_environment_sensor",
             compute_environment=ENVIRONMENT_NAME,
-            **args,
         )
 
-        with pytest.raises(expected_exception, match=error_message):
+        with pytest.raises(AirflowException, match=error_message):
             batch_compute_environment_sensor.poke({})
 
 
@@ -336,35 +280,20 @@ class TestBatchJobQueueSensor:
         )
         assert "AWS Batch job queue failed" in str(ctx.value)
 
-    @pytest.mark.parametrize(
-        "catch_mode, expected_exception", ((False, AirflowException), (True, AirflowSkipException))
-    )
     @pytest.mark.parametrize("job_queue", ([], [{"status": "UNKNOWN_STATUS"}]))
     @mock.patch.object(BatchClientHook, "client")
     def test_fail_poke(
         self,
         mock_batch_client,
         job_queue,
-        catch_mode,
-        expected_exception,
     ):
-        args = {}
-        if AIRFLOW_V_2_10_PLUS:
-            from airflow.sensors.base import FailPolicy
-
-            if catch_mode:
-                args["fail_policy"] = FailPolicy.SKIP_ON_TIMEOUT
-            else:
-                args["fail_policy"] = FailPolicy.NONE
-        else:
-            args["soft_fail"] = catch_mode
-
         mock_batch_client.describe_job_queues.return_value = {"jobQueues": job_queue}
         batch_job_queue_sensor = BatchJobQueueSensor(
-            task_id="test_batch_job_queue_sensor", job_queue=JOB_QUEUE, **args
+            task_id="test_batch_job_queue_sensor",
+            job_queue=JOB_QUEUE,
         )
         batch_job_queue_sensor.treat_non_existing_as_deleted = False
 
         message = "AWS Batch job queue"
-        with pytest.raises(expected_exception, match=message):
+        with pytest.raises(AirflowException, match=message):
             batch_job_queue_sensor.poke({})

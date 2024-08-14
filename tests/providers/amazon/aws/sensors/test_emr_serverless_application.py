@@ -21,28 +21,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from airflow.exceptions import AirflowException, AirflowSkipException
+from airflow.exceptions import AirflowException
 from airflow.providers.amazon.aws.sensors.emr import EmrServerlessApplicationSensor
-from tests.test_utils.compat import AIRFLOW_V_2_10_PLUS
 
 
 class TestEmrServerlessApplicationSensor:
-    def setup_method(self, args, optional_arg=None):
+    def setup_method(self):
         self.app_id = "vzwemreks"
         self.job_run_id = "job1234"
-        if optional_arg:
-            self.sensor = EmrServerlessApplicationSensor(
-                task_id="test_emrcontainer_sensor",
-                application_id=self.app_id,
-                aws_conn_id="aws_default",
-                **optional_arg,
-            )
-        else:
-            self.sensor = EmrServerlessApplicationSensor(
-                task_id="test_emrcontainer_sensor",
-                application_id=self.app_id,
-                aws_conn_id="aws_default",
-            )
+
+        self.sensor = EmrServerlessApplicationSensor(
+            task_id="test_emrcontainer_sensor",
+            application_id=self.app_id,
+            aws_conn_id="aws_default",
+        )
 
     def set_get_application_return_value(self, return_value: dict[str, str]):
         self.mock_hook = MagicMock()
@@ -87,22 +79,11 @@ class TestPokeRaisesAirflowException(TestEmrServerlessApplicationSensor):
 
 
 class TestPokeRaisesAirflowSkipException(TestEmrServerlessApplicationSensor):
-    def setup_method(self, args, optional_arg=None):
-        optional_arg = {}
-        if AIRFLOW_V_2_10_PLUS:
-            from airflow.sensors.base import FailPolicy
-
-            optional_arg["fail_policy"] = FailPolicy.SKIP_ON_TIMEOUT
-        else:
-            optional_arg["soft_fail"] = True
-
-        super().setup_method(args, optional_arg)
-
-    def test_when_state_is_failed_and_soft_fail_is_true_poke_should_raise_skip_exception(self):
+    def test_when_state_is_failed_and_poke_should_raise_skip_exception(self):
         self.set_get_application_return_value(
             {"application": {"state": "STOPPED", "stateDetails": "mock stopped"}}
         )
-        with pytest.raises(AirflowSkipException) as ctx:
+        with pytest.raises(AirflowException) as ctx:
             self.sensor.poke(None)
         assert "EMR Serverless application failed: mock stopped" == str(ctx.value)
         self.assert_get_application_was_called_once_with_app_id()

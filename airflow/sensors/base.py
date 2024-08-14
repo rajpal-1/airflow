@@ -23,7 +23,6 @@ import functools
 import hashlib
 import time
 import traceback
-import warnings
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
@@ -39,7 +38,6 @@ from airflow.exceptions import (
     AirflowSensorTimeout,
     AirflowSkipException,
     AirflowTaskTimeout,
-    RemovedInAirflow3SoftWarning,
     TaskDeferralError,
 )
 from airflow.executors.executor_loader import ExecutorLoader
@@ -54,7 +52,6 @@ from airflow.utils import timezone
 # See  https://github.com/apache/airflow/issues/16035
 from airflow.utils.decorators import apply_defaults  # noqa: F401
 from airflow.utils.session import NEW_SESSION, provide_session
-from airflow.utils.types import NOTSET, ArgNotSet
 
 if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
@@ -143,9 +140,6 @@ class BaseSensorOperator(BaseOperator, SkipMixin):
     Sensor operators keep executing at a time interval and succeed when
     a criteria is met and fail if and when they time out.
 
-    :param soft_fail: deprecated parameter replaced by FailPolicy.SKIP_ON_TIMEOUT
-           but that do not skip on AirflowFailException
-           Mutually exclusive with fail_policy and silent_fail.
     :param poke_interval: Time that the job should wait in between each try.
         Can be ``timedelta`` or ``float`` seconds.
     :param timeout: Time elapsed before the task times out and fails.
@@ -173,13 +167,10 @@ class BaseSensorOperator(BaseOperator, SkipMixin):
     :param exponential_backoff: allow progressive longer waits between
         pokes by using exponential backoff algorithm
     :param max_wait: maximum wait interval between pokes, can be ``timedelta`` or ``float`` seconds
-    :param silent_fail: deprecated parameter same effect than FailPolicy.IGNORE_ERROR
-           Mutually exclusive with fail_policy and soft_fail.
     :param fail_policy: defines the rule by which sensor skip itself. Options are:
         ``{ none | skip_on_any_error | skip_on_timeout | ignore_error }``
         default is ``none``. Options can be set as string or
         using the constants defined in the static class ``airflow.sensors.base.FailPolicy``
-        Mutually exclusive with soft_fail and silent_fail.
     """
 
     ui_color: str = "#e6f1f2"
@@ -194,12 +185,10 @@ class BaseSensorOperator(BaseOperator, SkipMixin):
         *,
         poke_interval: timedelta | float = 60,
         timeout: timedelta | float = conf.getfloat("sensors", "default_timeout"),
-        soft_fail: bool = False,
         mode: str = "poke",
         exponential_backoff: bool = False,
         max_wait: timedelta | float | None = None,
-        silent_fail: bool = False,
-        fail_policy: str | ArgNotSet = NOTSET,  # FailPolicy.NONE,
+        fail_policy: str = FailPolicy.NONE,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -208,45 +197,6 @@ class BaseSensorOperator(BaseOperator, SkipMixin):
         self.mode = mode
         self.exponential_backoff = exponential_backoff
         self.max_wait = self._coerce_max_wait(max_wait)
-        if soft_fail:
-            warnings.warn(
-                "`soft_fail` is deprecated and will be removed in a future version. "
-                "Please provide fail_policy=FailPolicy.skip_on_timeout instead.",
-                RemovedInAirflow3SoftWarning,
-                stacklevel=3,
-            )
-        elif silent_fail:
-            warnings.warn(
-                "`silent_fail` is deprecated and will be removed in a future version. "
-                "Please provide fail_policy=FailPolicy.IGNORE_ERRORS instead.",
-                RemovedInAirflow3SoftWarning,
-                stacklevel=3,
-            )
-        if fail_policy != NOTSET:
-            if sum([soft_fail, silent_fail]) > 0:
-                raise ValueError(
-                    "fail_policy and deprecated soft_fail and silent_fail parameters are mutually exclusive."
-                )
-
-            if fail_policy == FailPolicy.SKIP_ON_TIMEOUT:
-                soft_fail = True
-            elif fail_policy == FailPolicy.IGNORE_ERROR:
-                silent_fail = True
-        else:
-            if sum([soft_fail, silent_fail]) > 1:
-                raise ValueError(
-                    "soft_fail and silent_fail are mutually exclusive, you can not provide more than one."
-                )
-
-            if soft_fail:
-                fail_policy = FailPolicy.SKIP_ON_TIMEOUT
-            elif silent_fail:
-                fail_policy = FailPolicy.IGNORE_ERROR
-            else:
-                fail_policy = FailPolicy.NONE
-
-        self.soft_fail = soft_fail
-        self.silent_fail = silent_fail
         self.fail_policy = fail_policy
         self._validate_input_values()
 

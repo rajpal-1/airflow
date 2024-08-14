@@ -23,7 +23,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Callable, Collection, Iterable
 
 from airflow.configuration import conf
-from airflow.exceptions import AirflowPokeFailException, AirflowException, AirflowSkipException
+from airflow.exceptions import AirflowPokeFailException, AirflowSkipException
 from airflow.models.baseoperatorlink import BaseOperatorLink
 from airflow.models.dag import DagModel
 from airflow.models.dagbag import DagBag
@@ -340,7 +340,7 @@ class ExternalTaskSensor(BaseSensorOperator):
                     execution_dates=self._get_dttm_filter(context),
                     allowed_states=self.allowed_states,
                     poke_interval=self.poll_interval,
-                    soft_fail=self.soft_fail,
+                    fail_policy=self.fail_policy,
                 ),
                 method_name="execute_complete",
             )
