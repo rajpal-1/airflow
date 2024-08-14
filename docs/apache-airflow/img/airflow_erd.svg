@@ -1019,17 +1019,17 @@
 <text text-anchor="start" x="518" y="-3893.8" font-family="Helvetica,sans-Serif" font-size="14.00"> </text>
 <text text-anchor="start" x="523" y="-3893.8" font-family="Helvetica,sans-Serif" font-size="14.00"> [VARCHAR(2000)]</text>
 <polygon fill="none" stroke="black" points="394,-3859 394,-3884 798,-3884 798,-3859 394,-3859"/>
-<text text-anchor="start" x="399" y="-3868.8" font-family="Helvetica,sans-Serif" font-size="14.00">schedule_interval</text>
-<text text-anchor="start" x="521" y="-3868.8" font-family="Helvetica,sans-Serif" font-size="14.00"> </text>
-<text text-anchor="start" x="526" y="-3868.8" font-family="Helvetica,sans-Serif" font-size="14.00"> [TEXT]</text>
+<text text-anchor="start" x="399" y="-3868.8" font-family="Helvetica,sans-Serif" font-size="14.00">scheduler_lock</text>
+<text text-anchor="start" x="502" y="-3868.8" font-family="Helvetica,sans-Serif" font-size="14.00"> </text>
+<text text-anchor="start" x="507" y="-3868.8" font-family="Helvetica,sans-Serif" font-size="14.00"> [BOOLEAN]</text>
 <polygon fill="none" stroke="black" points="394,-3834 394,-3859 798,-3859 798,-3834 394,-3834"/>
-<text text-anchor="start" x="399" y="-3843.8" font-family="Helvetica,sans-Serif" font-size="14.00">scheduler_lock</text>
-<text text-anchor="start" x="502" y="-3843.8" font-family="Helvetica,sans-Serif" font-size="14.00"> </text>
-<text text-anchor="start" x="507" y="-3843.8" font-family="Helvetica,sans-Serif" font-size="14.00"> [BOOLEAN]</text>
+<text text-anchor="start" x="399" y="-3843.8" font-family="Helvetica,sans-Serif" font-size="14.00">timetable_description</text>
+<text text-anchor="start" x="549" y="-3843.8" font-family="Helvetica,sans-Serif" font-size="14.00"> </text>
+<text text-anchor="start" x="554" y="-3843.8" font-family="Helvetica,sans-Serif" font-size="14.00"> [VARCHAR(1000)]</text>
 <polygon fill="none" stroke="black" points="394,-3809 394,-3834 798,-3834 798,-3809 394,-3809"/>
-<text text-anchor="start" x="399" y="-3818.8" font-family="Helvetica,sans-Serif" font-size="14.00">timetable_description</text>
-<text text-anchor="start" x="549" y="-3818.8" font-family="Helvetica,sans-Serif" font-size="14.00"> </text>
-<text text-anchor="start" x="554" y="-3818.8" font-family="Helvetica,sans-Serif" font-size="14.00"> [VARCHAR(1000)]</text>
+<text text-anchor="start" x="399" y="-3818.8" font-family="Helvetica,sans-Serif" font-size="14.00">timetable_summary</text>
+<text text-anchor="start" x="538" y="-3818.8" font-family="Helvetica,sans-Serif" font-size="14.00"> </text>
+<text text-anchor="start" x="543" y="-3818.8" font-family="Helvetica,sans-Serif" font-size="14.00"> [TEXT]</text>
 </g>
 <!-- dag&#45;&#45;dag_schedule_dataset_alias_reference -->
 <g id="edge17" class="edge">
