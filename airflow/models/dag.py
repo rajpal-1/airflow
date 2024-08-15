@@ -2987,7 +2987,7 @@ class DAG(LoggingMixin):
                     if curr_orm_dag.schedule_dataset_alias_references:
                         curr_orm_dag.schedule_dataset_alias_references = []
             else:
-                for _, dataset in dataset_condition.iter_datasets():
+                for _, dataset in dataset_condition.iter_assets():
                     dag_references[dag.dag_id].add(Dataset(uri=dataset.uri))
                     input_datasets[DatasetModel.from_public(dataset)] = None
 

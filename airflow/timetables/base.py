@@ -55,7 +55,7 @@ class _NullDataset(BaseAsset):
     def evaluate(self, statuses: dict[str, bool]) -> bool:
         return False
 
-    def iter_datasets(self) -> Iterator[tuple[str, Dataset]]:
+    def iter_assets(self) -> Iterator[tuple[str, Dataset]]:
         return iter(())
 
     def iter_dag_dependencies(self, source, target) -> Iterator[DagDependency]:
