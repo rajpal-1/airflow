@@ -4262,7 +4262,7 @@ class TestSchedulerJob:
         dr1: DagRun = dag_maker.create_dagrun(run_type=DagRunType.SCHEDULED)
         dsm.register_asset_change(
             task_instance=dr1.get_task_instance("task", session=session),
-            dataset=ds,
+            asset=ds,
             session=session,
         )
         assert session.scalars(dse_q).one().source_run_id == dr1.run_id
@@ -4275,7 +4275,7 @@ class TestSchedulerJob:
         dr2: DagRun = dag_maker.create_dagrun_after(dr1, run_type=DagRunType.SCHEDULED)
         dsm.register_asset_change(
             task_instance=dr2.get_task_instance("task", session=session),
-            dataset=ds,
+            asset=ds,
             session=session,
         )
         assert [e.source_run_id for e in session.scalars(dse_q)] == [dr1.run_id, dr2.run_id]
