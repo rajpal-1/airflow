@@ -406,6 +406,7 @@ class _BasePythonVirtualenvOperator(PythonOperator, metaclass=ABCMeta):
         skip_on_exit_code: int | Container[int] | None = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = True,
+        use_dill: bool = False,
         use_airflow_context: bool = False,
         **kwargs,
     ):
@@ -426,6 +427,19 @@ class _BasePythonVirtualenvOperator(PythonOperator, metaclass=ABCMeta):
             **kwargs,
         )
         self.string_args = string_args or []
+
+        if use_dill:
+            warnings.warn(
+                "`use_dill` is deprecated and will be removed in a future version. "
+                "Please provide serializer='dill' instead.",
+                RemovedInAirflow3Warning,
+                stacklevel=3,
+            )
+            if serializer:
+                raise AirflowException(
+                    "Both 'use_dill' and 'serializer' parameters are set. Please set only one of them"
+                )
+            serializer = "dill"
         serializer = serializer or "pickle"
         if serializer not in _SERIALIZERS:
             msg = (
@@ -637,6 +651,9 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
         environment. If set to ``True``, the virtual environment will inherit the environment variables
         of the parent process (``os.environ``). If set to ``False``, the virtual environment will be
         executed with a clean environment.
+    :param use_dill: Deprecated, use ``serializer`` instead. Whether to use dill to serialize
+        the args and result (pickle is default). This allows more complex types
+        but requires you to include dill in your requirements.
     :param use_airflow_context: Whether to provide ``get_current_context()`` to the python_callable.
     """
 
@@ -665,6 +682,7 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
         venv_cache_path: None | os.PathLike[str] = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = True,
+        use_dill: bool = False,
         use_airflow_context: bool = False,
         **kwargs,
     ):
@@ -718,6 +736,7 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
             skip_on_exit_code=skip_on_exit_code,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            use_dill=use_dill,
             use_airflow_context=use_airflow_context,
             **kwargs,
         )
@@ -934,6 +953,9 @@ class ExternalPythonOperator(_BasePythonVirtualenvOperator):
         environment. If set to ``True``, the virtual environment will inherit the environment variables
         of the parent process (``os.environ``). If set to ``False``, the virtual environment will be
         executed with a clean environment.
+    :param use_dill: Deprecated, use ``serializer`` instead. Whether to use dill to serialize
+        the args and result (pickle is default). This allows more complex types
+        but requires you to include dill in your requirements.
     :param use_airflow_context: Whether to provide ``get_current_context()`` to the python_callable.
     """
 
@@ -955,6 +977,7 @@ class ExternalPythonOperator(_BasePythonVirtualenvOperator):
         skip_on_exit_code: int | Container[int] | None = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = True,
+        use_dill: bool = False,
         use_airflow_context: bool = False,
         **kwargs,
     ):
@@ -977,6 +1000,7 @@ class ExternalPythonOperator(_BasePythonVirtualenvOperator):
             skip_on_exit_code=skip_on_exit_code,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            use_dill=use_dill,
             use_airflow_context=use_airflow_context,
             **kwargs,
         )
