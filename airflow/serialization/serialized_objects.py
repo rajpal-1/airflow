@@ -40,7 +40,7 @@ from airflow.assets import (
     Dataset,
     DatasetAlias,
     DatasetAll,
-    DatasetAny,
+    AssetAny,
     _DatasetAliasCondition,
 )
 from airflow.callbacks.callback_requests import DagCallbackRequest, SlaCallbackRequest, TaskCallbackRequest
@@ -259,7 +259,7 @@ def encode_dataset_condition(var: BaseAsset) -> dict[str, Any]:
         return {"__type": DAT.DATASET_ALIAS, "name": var.name}
     if isinstance(var, DatasetAll):
         return {"__type": DAT.DATASET_ALL, "objects": [encode_dataset_condition(x) for x in var.objects]}
-    if isinstance(var, DatasetAny):
+    if isinstance(var, AssetAny):
         return {"__type": DAT.DATASET_ANY, "objects": [encode_dataset_condition(x) for x in var.objects]}
     raise ValueError(f"serialization not implemented for {type(var).__name__!r}")
 
@@ -276,7 +276,7 @@ def decode_dataset_condition(var: dict[str, Any]) -> BaseAsset:
     if dat == DAT.DATASET_ALL:
         return DatasetAll(*(decode_dataset_condition(x) for x in var["objects"]))
     if dat == DAT.DATASET_ANY:
-        return DatasetAny(*(decode_dataset_condition(x) for x in var["objects"]))
+        return AssetAny(*(decode_dataset_condition(x) for x in var["objects"]))
     if dat == DAT.DATASET_ALIAS:
         return DatasetAlias(name=var["name"])
     raise ValueError(f"deserialization not implemented for DAT {dat!r}")
@@ -871,7 +871,7 @@ class BaseSerialization:
         elif type_ == DAT.DATASET_ALIAS:
             return DatasetAlias(**var)
         elif type_ == DAT.DATASET_ANY:
-            return DatasetAny(*(decode_dataset_condition(x) for x in var["objects"]))
+            return AssetAny(*(decode_dataset_condition(x) for x in var["objects"]))
         elif type_ == DAT.DATASET_ALL:
             return DatasetAll(*(decode_dataset_condition(x) for x in var["objects"]))
         elif type_ == DAT.SIMPLE_TASK_INSTANCE:

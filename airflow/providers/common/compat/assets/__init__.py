@@ -25,7 +25,7 @@ if TYPE_CHECKING:
         DatasetAlias,
         DatasetAliasEvent,
         DatasetAll,
-        DatasetAny,
+        AssetAny,
         expand_alias_to_datasets,
     )
 else:
@@ -35,17 +35,17 @@ else:
             DatasetAlias,
             DatasetAliasEvent,
             DatasetAll,
-            DatasetAny,
+            AssetAny,
             expand_alias_to_datasets,
         )
     except ModuleNotFoundError:
         # dataset is renamed to asset since Airflow 3.0
+        from airflow.datasets import DatasetAny as AssetAny
         from airflow.datasets import (
             Dataset,
             DatasetAlias,
             DatasetAliasEvent,
             DatasetAll,
-            DatasetAny,
             expand_alias_to_datasets,
         )
 
@@ -55,6 +55,6 @@ __all__ = [
     "DatasetAlias",
     "DatasetAliasEvent",
     "DatasetAll",
-    "DatasetAny",
+    "AssetAny",
     "expand_alias_to_datasets",
 ]
