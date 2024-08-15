@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Sequence
 from deprecated import deprecated
 
 from airflow.configuration import conf
-from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning, AirflowSkipException
+from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning
 from airflow.providers.amazon.aws.hooks.batch_client import BatchClientHook
 from airflow.providers.amazon.aws.triggers.batch import BatchJobTrigger
 from airflow.sensors.base import BaseSensorOperator
@@ -87,16 +87,10 @@ class BatchSensor(BaseSensorOperator):
             return False
 
         if state == BatchClientHook.FAILURE_STATE:
-            # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
             message = f"Batch sensor failed. AWS Batch job status: {state}"
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise AirflowException(message)
 
-        # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
         message = f"Batch sensor failed. Unknown AWS Batch job status: {state}"
-        if self.soft_fail:
-            raise AirflowSkipException(message)
         raise AirflowException(message)
 
     def execute(self, context: Context) -> None:
@@ -128,10 +122,6 @@ class BatchSensor(BaseSensorOperator):
         """
         if event["status"] != "success":
             message = f"Error while running job: {event}"
-            # TODO: remove this if-else block when min_airflow_version is set to higher than the version that
-            # changed in https://github.com/apache/airflow/pull/33424 is released (2.7.1)
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise AirflowException(message)
         job_id = event["job_id"]
         self.log.info("Batch Job %s complete", job_id)
@@ -199,9 +189,6 @@ class BatchComputeEnvironmentSensor(BaseSensorOperator):
 
         if not response["computeEnvironments"]:
             message = f"AWS Batch compute environment {self.compute_environment} not found"
-            # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise AirflowException(message)
 
         status = response["computeEnvironments"][0]["status"]
@@ -212,10 +199,7 @@ class BatchComputeEnvironmentSensor(BaseSensorOperator):
         if status in BatchClientHook.COMPUTE_ENVIRONMENT_INTERMEDIATE_STATUS:
             return False
 
-        # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
         message = f"AWS Batch compute environment failed. AWS Batch compute environment status: {status}"
-        if self.soft_fail:
-            raise AirflowSkipException(message)
         raise AirflowException(message)
 
 
@@ -276,10 +260,7 @@ class BatchJobQueueSensor(BaseSensorOperator):
             if self.treat_non_existing_as_deleted:
                 return True
             else:
-                # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
                 message = f"AWS Batch job queue {self.job_queue} not found"
-                if self.soft_fail:
-                    raise AirflowSkipException(message)
                 raise AirflowException(message)
 
         status = response["jobQueues"][0]["status"]
@@ -291,6 +272,4 @@ class BatchJobQueueSensor(BaseSensorOperator):
             return False
 
         message = f"AWS Batch job queue failed. AWS Batch job queue status: {status}"
-        if self.soft_fail:
-            raise AirflowSkipException(message)
         raise AirflowException(message)

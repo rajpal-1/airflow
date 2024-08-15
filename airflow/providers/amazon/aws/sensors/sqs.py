@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Collection, Sequence
 from deprecated import deprecated
 
 from airflow.configuration import conf
-from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning, AirflowSkipException
+from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning
 from airflow.providers.amazon.aws.hooks.sqs import SqsHook
 from airflow.providers.amazon.aws.sensors.base_aws import AwsBaseSensor
 from airflow.providers.amazon.aws.triggers.sqs import SqsSensorTrigger
@@ -160,10 +160,7 @@ class SqsSensor(AwsBaseSensor[SqsHook]):
         event = validate_execute_complete_event(event)
 
         if event["status"] != "success":
-            # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
             message = f"Trigger error: event is {event}"
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise AirflowException(message)
         context["ti"].xcom_push(key="messages", value=event["message_batch"])
 
@@ -221,10 +218,7 @@ class SqsSensor(AwsBaseSensor[SqsHook]):
                 response = self.hook.conn.delete_message_batch(QueueUrl=self.sqs_queue, Entries=entries)
 
                 if "Successful" not in response:
-                    # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
                     error_message = f"Delete SQS Messages failed {response} for messages {messages}"
-                    if self.soft_fail:
-                        raise AirflowSkipException(error_message)
                     raise AirflowException(error_message)
         if message_batch:
             context["ti"].xcom_push(key="messages", value=message_batch)

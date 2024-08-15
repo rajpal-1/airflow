@@ -24,7 +24,7 @@ import boto3
 import pytest
 from slugify import slugify
 
-from airflow.exceptions import AirflowException, AirflowSkipException
+from airflow.exceptions import AirflowException
 from airflow.providers.amazon.aws.sensors.ecs import (
     EcsBaseSensor,
     EcsClusterStates,
@@ -267,18 +267,14 @@ class TestEcsTaskStateSensor(EcsBaseTestCase):
             m.assert_called_once_with(cluster=TEST_CLUSTER_NAME, task=TEST_TASK_ARN)
 
 
-@pytest.mark.parametrize(
-    "soft_fail, expected_exception", ((False, AirflowException), (True, AirflowSkipException))
-)
-def test_fail__check_failed(soft_fail, expected_exception):
+def test_fail__check_failed():
     current_state = "FAILED"
     target_state = "SUCCESS"
     failure_states = ["FAILED"]
     message = f"Terminal state reached. Current state: {current_state}, Expected state: {target_state}"
-    with pytest.raises(expected_exception, match=message):
+    with pytest.raises(AirflowException, match=message):
         _check_failed(
             current_state=current_state,
             target_state=target_state,
             failure_states=failure_states,
-            soft_fail=soft_fail,
         )
