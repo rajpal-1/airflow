@@ -2991,7 +2991,7 @@ class DAG(LoggingMixin):
                     dag_references[dag.dag_id].add(Dataset(uri=dataset.uri))
                     input_datasets[DatasetModel.from_public(dataset)] = None
 
-                for dataset_alias in dataset_condition.iter_dataset_aliases():
+                for dataset_alias in dataset_condition.iter_asset_aliases():
                     dag_references[dag.dag_id].add(dataset_alias)
                     input_dataset_aliases.add(DatasetAliasModel.from_public(dataset_alias))
 

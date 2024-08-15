@@ -192,7 +192,7 @@ class BaseAsset:
     def iter_assets(self) -> Iterator[tuple[str, Dataset]]:
         raise NotImplementedError
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         raise NotImplementedError
 
     def iter_dag_dependencies(self, *, source: str, target: str) -> Iterator[DagDependency]:
@@ -295,7 +295,7 @@ class Dataset(os.PathLike, BaseAsset):
     def iter_assets(self) -> Iterator[tuple[str, Dataset]]:
         yield self.uri, self
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         return iter(())
 
     def evaluate(self, statuses: dict[str, bool]) -> bool:
@@ -340,10 +340,10 @@ class _AssetBooleanCondition(BaseAsset):
                 yield k, v
                 seen.add(k)
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         """Filter dataest aliases in the condition."""
         for o in self.objects:
-            yield from o.iter_dataset_aliases()
+            yield from o.iter_asset_aliases()
 
     def iter_dag_dependencies(self, *, source: str, target: str) -> Iterator[DagDependency]:
         """
@@ -400,7 +400,7 @@ class _DatasetAliasCondition(AssetAny):
         """
         return {"alias": self.name}
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         yield DatasetAlias(self.name)
 
     def iter_dag_dependencies(self, *, source: str = "", target: str = "") -> Iterator[DagDependency]:
