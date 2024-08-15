@@ -65,7 +65,6 @@ from airflow.configuration import conf
 from airflow.exceptions import AirflowException
 from airflow.models import import_all_models
 from airflow.utils import helpers
-from airflow.utils.log.logging_mixin import LoggingMixin
 from airflow.utils.module_loading import import_string
 
 # TODO: remove create_session once we decide to break backward compatibility
@@ -2118,7 +2117,7 @@ def _coerce_slice(key: slice) -> tuple[int, int | None, bool]:
     return _coerce_index(key.start) or 0, _coerce_index(key.stop), reverse
 
 
-class RunDBManager(LoggingMixin):
+class RunDBManager:
     """
     Run External DB Managers.
 
@@ -2126,7 +2125,6 @@ class RunDBManager(LoggingMixin):
     """
 
     def __init__(self):
-        super().__init__()
         self._managers: list[type[BaseDBManager]] = []
         managers = conf.get("database", "external_db_managers").split(",")
         for module in managers:

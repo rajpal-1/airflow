@@ -24,7 +24,6 @@ from sqlalchemy.orm import registry
 
 from airflow import settings
 from airflow.configuration import conf
-from airflow.utils.log.logging_mixin import LoggingMixin
 
 SQL_ALCHEMY_SCHEMA = conf.get("database", "SQL_ALCHEMY_SCHEMA")
 
@@ -110,7 +109,7 @@ class AttributeCheckerMeta(type):
         return super().__new__(cls, name, bases, dct)
 
 
-class BaseDBManager(LoggingMixin, metaclass=AttributeCheckerMeta):
+class BaseDBManager(metaclass=AttributeCheckerMeta):
     """Base DB manager for external DBs."""
 
     metadata: MetaData = None
@@ -121,7 +120,6 @@ class BaseDBManager(LoggingMixin, metaclass=AttributeCheckerMeta):
     supports_table_dropping: bool = False
 
     def __init__(self, session):
-        super().__init__()
         self.session = session
 
     def get_alembic_config(self):
