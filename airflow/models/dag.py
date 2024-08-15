@@ -81,7 +81,7 @@ from sqlalchemy.sql import Select, expression
 import airflow.templates
 from airflow import settings, utils
 from airflow.api_internal.internal_api_call import internal_api_call
-from airflow.assets import BaseDataset, Dataset, DatasetAlias, DatasetAll
+from airflow.assets import BaseAsset, Dataset, DatasetAlias, DatasetAll
 from airflow.assets.manager import asset_manager
 from airflow.configuration import conf as airflow_conf, secrets_backend_list
 from airflow.exceptions import (
@@ -177,7 +177,7 @@ ScheduleInterval = Union[None, str, timedelta, relativedelta]
 # See also: https://discuss.python.org/t/9126/7
 ScheduleIntervalArg = Union[ArgNotSet, ScheduleInterval]
 ScheduleArg = Union[
-    ArgNotSet, ScheduleInterval, Timetable, BaseDataset, Collection[Union["Dataset", "DatasetAlias"]]
+    ArgNotSet, ScheduleInterval, Timetable, BaseAsset, Collection[Union["Dataset", "DatasetAlias"]]
 ]
 
 SLAMissCallback = Callable[["DAG", str, str, List["SlaMiss"], List[TaskInstance]], None]
@@ -671,7 +671,7 @@ class DAG(LoggingMixin):
         if isinstance(schedule, Timetable):
             self.timetable = schedule
             self.schedule_interval = schedule.summary
-        elif isinstance(schedule, BaseDataset):
+        elif isinstance(schedule, BaseAsset):
             self.timetable = DatasetTriggeredTimetable(schedule)
             self.schedule_interval = self.timetable.summary
         elif isinstance(schedule, Collection) and not isinstance(schedule, str):
@@ -3659,7 +3659,7 @@ class DagModel(Base):
         """
         from airflow.models.serialized_dag import SerializedDagModel
 
-        def dag_ready(dag_id: str, cond: BaseDataset, statuses: dict) -> bool | None:
+        def dag_ready(dag_id: str, cond: BaseAsset, statuses: dict) -> bool | None:
             # if dag was serialized before 2.9 and we *just* upgraded,
             # we may be dealing with old version.  In that case,
             # just wait for the dag to be reserialized.
