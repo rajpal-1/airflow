@@ -36,11 +36,11 @@ from pendulum.tz.timezone import FixedTimezone, Timezone
 
 from airflow import macros
 from airflow.assets import (
+    AssetAll,
+    AssetAny,
     BaseAsset,
     Dataset,
     DatasetAlias,
-    DatasetAll,
-    AssetAny,
     _DatasetAliasCondition,
 )
 from airflow.callbacks.callback_requests import DagCallbackRequest, SlaCallbackRequest, TaskCallbackRequest
@@ -257,7 +257,7 @@ def encode_dataset_condition(var: BaseAsset) -> dict[str, Any]:
         return {"__type": DAT.DATASET, "uri": var.uri, "extra": var.extra}
     if isinstance(var, DatasetAlias):
         return {"__type": DAT.DATASET_ALIAS, "name": var.name}
-    if isinstance(var, DatasetAll):
+    if isinstance(var, AssetAll):
         return {"__type": DAT.DATASET_ALL, "objects": [encode_dataset_condition(x) for x in var.objects]}
     if isinstance(var, AssetAny):
         return {"__type": DAT.DATASET_ANY, "objects": [encode_dataset_condition(x) for x in var.objects]}
@@ -274,7 +274,7 @@ def decode_dataset_condition(var: dict[str, Any]) -> BaseAsset:
     if dat == DAT.DATASET:
         return Dataset(var["uri"], extra=var["extra"])
     if dat == DAT.DATASET_ALL:
-        return DatasetAll(*(decode_dataset_condition(x) for x in var["objects"]))
+        return AssetAll(*(decode_dataset_condition(x) for x in var["objects"]))
     if dat == DAT.DATASET_ANY:
         return AssetAny(*(decode_dataset_condition(x) for x in var["objects"]))
     if dat == DAT.DATASET_ALIAS:
@@ -873,7 +873,7 @@ class BaseSerialization:
         elif type_ == DAT.DATASET_ANY:
             return AssetAny(*(decode_dataset_condition(x) for x in var["objects"]))
         elif type_ == DAT.DATASET_ALL:
-            return DatasetAll(*(decode_dataset_condition(x) for x in var["objects"]))
+            return AssetAll(*(decode_dataset_condition(x) for x in var["objects"]))
         elif type_ == DAT.SIMPLE_TASK_INSTANCE:
             return SimpleTaskInstance(**cls.deserialize(var))
         elif type_ == DAT.CONNECTION:

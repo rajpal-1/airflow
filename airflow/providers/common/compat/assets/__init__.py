@@ -21,31 +21,31 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from airflow.assets import (
+        AssetAll,
+        AssetAny,
         Dataset,
         DatasetAlias,
         DatasetAliasEvent,
-        DatasetAll,
-        AssetAny,
         expand_alias_to_datasets,
     )
 else:
     try:
         from airflow.assets import (
+            AssetAll,
+            AssetAny,
             Dataset,
             DatasetAlias,
             DatasetAliasEvent,
-            DatasetAll,
-            AssetAny,
             expand_alias_to_datasets,
         )
     except ModuleNotFoundError:
         # dataset is renamed to asset since Airflow 3.0
-        from airflow.datasets import DatasetAny as AssetAny
         from airflow.datasets import (
             Dataset,
             DatasetAlias,
             DatasetAliasEvent,
-            DatasetAll,
+            DatasetAll as AssetAll,
+            DatasetAny as AssetAny,
             expand_alias_to_datasets,
         )
 
@@ -54,7 +54,7 @@ __all__ = [
     "Dataset",
     "DatasetAlias",
     "DatasetAliasEvent",
-    "DatasetAll",
+    "AssetAll",
     "AssetAny",
     "expand_alias_to_datasets",
 ]
