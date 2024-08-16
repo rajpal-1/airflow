@@ -1812,6 +1812,7 @@ class TaskInstance(Base, LoggingMixin):
 
     start_date = Column(UtcDateTime)
     end_date = Column(UtcDateTime)
+    task_owner = Column(String(50))
     duration = Column(Float)
     state = Column(String(20))
     try_number = Column(Integer, default=0)
@@ -1920,6 +1921,7 @@ class TaskInstance(Base, LoggingMixin):
         super().__init__()
         self.dag_id = task.dag_id
         self.task_id = task.task_id
+        self.task_owner = task.owner
         self.map_index = map_index
         self.refresh_from_task(task)
         if TYPE_CHECKING:
@@ -2018,6 +2020,7 @@ class TaskInstance(Base, LoggingMixin):
         return {
             "dag_id": task.dag_id,
             "task_id": task.task_id,
+            "task_owner": task.owner,
             "run_id": run_id,
             "try_number": 0,
             "hostname": "",
