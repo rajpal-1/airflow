@@ -65,6 +65,7 @@ from airflow.configuration import conf
 from airflow.exceptions import AirflowException
 from airflow.models import import_all_models
 from airflow.utils import helpers
+from airflow.utils.module_loading import import_string
 
 # TODO: remove create_session once we decide to break backward compatibility
 from airflow.utils.session import NEW_SESSION, create_session, provide_session  # noqa: F401
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.elements import ClauseElement, TextClause
     from sqlalchemy.sql.selectable import Select
 
+    from airflow.models.base import BaseDBManager
     from airflow.models.connection import Connection
     from airflow.typing_compat import Self
 
@@ -748,7 +750,6 @@ def _create_db_from_orm(session):
     from alembic import command
 
     from airflow.models.base import Base
-    from airflow.providers.fab.auth_manager.models import Model
 
     def _create_flask_session_tbl(sql_database_uri):
         db = _get_flask_db(sql_database_uri)
@@ -757,7 +758,6 @@ def _create_db_from_orm(session):
     with create_global_lock(session=session, lock=DBLocks.MIGRATIONS):
         engine = session.get_bind().engine
         Base.metadata.create_all(engine)
-        Model.metadata.create_all(engine)
         _create_flask_session_tbl(engine.url)
         # stamp the migration head
         config = _get_alembic_config()
@@ -767,6 +767,8 @@ def _create_db_from_orm(session):
 @provide_session
 def initdb(session: Session = NEW_SESSION, load_connections: bool = True):
     """Initialize Airflow database."""
+    external_db_manager = RunDBManager()
+    external_db_manager.validate()
     import_all_models()
 
     db_exists = _get_current_revision(session)
@@ -774,6 +776,7 @@ def initdb(session: Session = NEW_SESSION, load_connections: bool = True):
         upgradedb(session=session)
     else:
         _create_db_from_orm(session=session)
+    external_db_manager.initdb(session)
     if conf.getboolean("database", "LOAD_DEFAULT_CONNECTIONS") and load_connections:
         create_default_connections(session=session)
     # Add default pool & sync log_template
@@ -1636,7 +1639,6 @@ def upgradedb(
         # New DB; initialize and exit
         initdb(session=session, load_connections=False)
         return
-
     with create_global_lock(session=session, lock=DBLocks.MIGRATIONS):
         import sqlalchemy.pool
 
@@ -1650,6 +1652,7 @@ def upgradedb(
             os.environ["AIRFLOW__DATABASE__SQL_ALCHEMY_MAX_SIZE"] = "1"
             settings.reconfigure_orm(pool_class=sqlalchemy.pool.SingletonThreadPool)
             command.upgrade(config, revision=to_revision or "heads")
+
         finally:
             if val is None:
                 os.environ.pop("AIRFLOW__DATABASE__SQL_ALCHEMY_MAX_SIZE")
@@ -1679,6 +1682,8 @@ def resetdb(session: Session = NEW_SESSION, skip_init: bool = False):
     with create_global_lock(session=session, lock=DBLocks.MIGRATIONS), connection.begin():
         drop_airflow_models(connection)
         drop_airflow_moved_tables(connection)
+        external_db_manager = RunDBManager()
+        external_db_manager.drop_tables(connection)
 
     if not skip_init:
         initdb(session=session)
@@ -1745,10 +1750,8 @@ def drop_airflow_models(connection):
     :return: None
     """
     from airflow.models.base import Base
-    from airflow.providers.fab.auth_manager.models import Model
 
     Base.metadata.drop_all(connection)
-    Model.metadata.drop_all(connection)
     db = _get_flask_db(connection.engine.url)
     db.drop_all()
     # alembic adds significant import time, so we import it lazily
@@ -2112,3 +2115,77 @@ def _coerce_slice(key: slice) -> tuple[int, int | None, bool]:
     else:
         raise ValueError("non-trivial slice step not supported")
     return _coerce_index(key.start) or 0, _coerce_index(key.stop), reverse
+
+
+class RunDBManager:
+    """
+    Run External DB Managers.
+
+    This class is a container for external database managers.
+    """
+
+    def __init__(self):
+        self._managers: list[type[BaseDBManager]] = []
+        managers = conf.get("database", "external_db_managers").split(",")
+        for module in managers:
+            manager = import_string(module)
+            self._managers.append(manager)
+
+    def validate(self):
+        """Validate the external database managers."""
+        for manager in self._managers:
+            RunDBManager._validate(manager)
+
+    @staticmethod
+    def _validate(manager: type[BaseDBManager]):
+        """Validate the external database migration."""
+        import ast
+
+        from airflow.models.base import metadata as airflow_metadata
+
+        external_metadata = manager.metadata
+        airflow_m = airflow_metadata
+        # validate tables are not airflow tables in metadata
+        for table_ in external_metadata.tables:
+            if table_ in airflow_m.tables:
+                raise AirflowException(f"Table '{table_}' already exists in the Airflow metadata")
+        # validate the version table schema is set appropriately in env.py
+        migration_dir = manager.migration_dir
+        env_file = os.path.join(migration_dir, "env.py")
+        with open(env_file) as f:
+            tree = ast.parse(f.read(), filename=env_file)
+
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "context.configure"
+            ):
+                if "version_table" not in node.keywords:
+                    raise AirflowException(f"version_table not set in {env_file}")
+        # validate the version table is not airflow version table
+        if manager.version_table_name == "alembic_version":
+            raise AirflowException(f"{manager}.version_table_name cannot be 'alembic_version'")
+
+    def initdb(self, session):
+        """Initialize the external database managers."""
+        for manager in self._managers:
+            m = manager(session)
+            m.initdb()
+
+    def upgradedb(self, session):
+        """Upgrade the external database managers."""
+        for manager in self._managers:
+            m = manager(session)
+            m.upgradedb()
+
+    def downgradedb(self, session):
+        """Downgrade the external database managers."""
+        for manager in self._managers:
+            m = manager(session)
+            m.downgradedb()
+
+    def drop_tables(self, connection):
+        """Drop the external database managers."""
+        for manager in self._managers:
+            manager.metadata.drop_all(connection)
