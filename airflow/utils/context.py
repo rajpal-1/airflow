@@ -41,9 +41,9 @@ import lazy_object_proxy
 from sqlalchemy import select
 
 from airflow.assets import (
+    AssetAliasEvent,
     Dataset,
     DatasetAlias,
-    DatasetAliasEvent,
     extract_event_key,
 )
 from airflow.exceptions import RemovedInAirflow3Warning
@@ -172,7 +172,7 @@ class OutletEventAccessor:
 
     raw_key: str | Dataset | DatasetAlias
     extra: dict[str, Any] = attrs.Factory(dict)
-    dataset_alias_event: DatasetAliasEvent | None = None
+    asset_alias_event: AssetAliasEvent | None = None
 
     def add(self, dataset: Dataset | str, extra: dict[str, Any] | None = None) -> None:
         """Add a DatasetEvent to an existing Dataset."""
@@ -193,8 +193,8 @@ class OutletEventAccessor:
         if extra:
             self.extra = extra
 
-        self.dataset_alias_event = DatasetAliasEvent(
-            source_alias_name=dataset_alias_name, dest_dataset_uri=dataset_uri
+        self.asset_alias_event = AssetAliasEvent(
+            source_alias_name=dataset_alias_name, dest_asset_uri=dataset_uri
         )
 
 

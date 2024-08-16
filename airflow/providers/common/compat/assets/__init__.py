@@ -23,21 +23,21 @@ from airflow import __version__ as AIRFLOW_VERSION
 
 if TYPE_CHECKING:
     from airflow.assets import (
+        AssetAliasEvent,
         AssetAll,
         AssetAny,
         Dataset,
         DatasetAlias,
-        DatasetAliasEvent,
         expand_alias_to_datasets,
     )
 else:
     try:
         from airflow.assets import (
+            AssetAliasEvent,
             AssetAll,
             AssetAny,
             Dataset,
             DatasetAlias,
-            DatasetAliasEvent,
             expand_alias_to_datasets,
         )
     except ModuleNotFoundError:
@@ -55,13 +55,17 @@ else:
                 DatasetAny as AssetAny,
             )
         if _IS_AIRFLOW_2_10_OR_HIGHER:
-            from airflow.datasets import DatasetAlias, DatasetAliasEvent, expand_alias_to_datasets
+            from airflow.datasets import (
+                DatasetAlias,
+                DatasetAliasEvent as AssetAliasEvent,
+                expand_alias_to_datasets,
+            )
 
 
 __all__ = [
     "Dataset",
     "DatasetAlias",
-    "DatasetAliasEvent",
+    "AssetAliasEvent",
     "AssetAll",
     "AssetAny",
     "expand_alias_to_datasets",

@@ -3015,13 +3015,13 @@ class TaskInstance(Base, LoggingMixin):
                     session=session,
                 )
             elif isinstance(obj, DatasetAlias):
-                if dataset_alias_event := events[obj].dataset_alias_event:
-                    dataset_uri = dataset_alias_event["dest_dataset_uri"]
+                if asset_alias_event := events[obj].asset_alias_event:
+                    asset_uri = asset_alias_event["dest_asset_uri"]
                     extra = events[obj].extra
                     frozen_extra = frozenset(extra.items())
-                    dataset_alias_name = dataset_alias_event["source_alias_name"]
+                    dataset_alias_name = asset_alias_event["source_alias_name"]
 
-                    dataset_tuple_to_alias_names_mapping[(dataset_uri, frozen_extra)].add(dataset_alias_name)
+                    dataset_tuple_to_alias_names_mapping[(asset_uri, frozen_extra)].add(dataset_alias_name)
 
         dataset_objs_cache: dict[str, DatasetModel] = {}
         for (uri, extra_items), alias_names in dataset_tuple_to_alias_names_mapping.items():

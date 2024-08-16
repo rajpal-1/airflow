@@ -286,7 +286,7 @@ def encode_outlet_event_accessor(var: OutletEventAccessor) -> dict[str, Any]:
     raw_key = var.raw_key
     return {
         "extra": var.extra,
-        "dataset_alias_event": var.dataset_alias_event,
+        "asset_alias_event": var.asset_alias_event,
         "raw_key": BaseSerialization.serialize(raw_key),
     }
 
@@ -294,7 +294,7 @@ def encode_outlet_event_accessor(var: OutletEventAccessor) -> dict[str, Any]:
 def decode_outlet_event_accessor(var: dict[str, Any]) -> OutletEventAccessor:
     raw_key = BaseSerialization.deserialize(var["raw_key"])
     outlet_event_accessor = OutletEventAccessor(extra=var["extra"], raw_key=raw_key)
-    outlet_event_accessor.dataset_alias_event = var["dataset_alias_event"]
+    outlet_event_accessor.asset_alias_event = var["asset_alias_event"]
     return outlet_event_accessor
 
 
