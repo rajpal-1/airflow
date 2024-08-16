@@ -252,7 +252,7 @@ class TestMarkTasks:
         assert len(altered) == 1
         self.verify_state(self.dag1, [task.task_id], [self.execution_dates[0]], State.SUCCESS, snapshot)
 
-        # set one task as FAILED. dag3 has schedule_interval None
+        # set one task as FAILED. dag3 has schedule=None
         snapshot = TestMarkTasks.snapshot_state(self.dag3, self.dag3_execution_dates)
         task = self.dag3.get_task("run_this")
         dr = DagRun.find(dag_id=self.dag3.dag_id, execution_date=self.dag3_execution_dates[1])[0]
