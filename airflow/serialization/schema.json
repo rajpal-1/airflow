@@ -161,7 +161,7 @@
         "_processor_dags_folder": {
             "anyOf": [
                 { "type": "null" },
-                {"type": "string"}
+                { "type": "string" }
             ]
         },
         "orientation": { "type" : "string"},
@@ -188,7 +188,13 @@
           { "$ref": "#/definitions/task_group" }
         ]},
         "edge_info": { "$ref": "#/definitions/edge_info" },
-        "dag_dependencies": { "$ref": "#/definitions/dag_dependencies" }
+        "dag_dependencies": { "$ref": "#/definitions/dag_dependencies" },
+        "_wrapped_definition": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string" }
+          ]
+        }
       },
       "required": [
         "_dag_id",
