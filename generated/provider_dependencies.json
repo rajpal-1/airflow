@@ -949,6 +949,7 @@
       }
     ],
     "cross-providers-deps": [
+      "common.compat",
       "common.sql"
     ],
     "excluded-python-versions": [],

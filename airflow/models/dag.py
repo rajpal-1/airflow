@@ -81,9 +81,9 @@ from sqlalchemy.sql import Select, expression
 import airflow.templates
 from airflow import settings, utils
 from airflow.api_internal.internal_api_call import internal_api_call
+from airflow.assets import AssetAll, BaseAsset, Dataset, DatasetAlias
+from airflow.assets.manager import asset_manager
 from airflow.configuration import conf as airflow_conf, secrets_backend_list
-from airflow.datasets import BaseDataset, Dataset, DatasetAlias, DatasetAll
-from airflow.datasets.manager import dataset_manager
 from airflow.exceptions import (
     AirflowDagInconsistent,
     AirflowException,
@@ -177,7 +177,7 @@ ScheduleInterval = Union[None, str, timedelta, relativedelta]
 # See also: https://discuss.python.org/t/9126/7
 ScheduleIntervalArg = Union[ArgNotSet, ScheduleInterval]
 ScheduleArg = Union[
-    ArgNotSet, ScheduleInterval, Timetable, BaseDataset, Collection[Union["Dataset", "DatasetAlias"]]
+    ArgNotSet, ScheduleInterval, Timetable, BaseAsset, Collection[Union["Dataset", "DatasetAlias"]]
 ]
 
 SLAMissCallback = Callable[["DAG", str, str, List["SlaMiss"], List[TaskInstance]], None]
@@ -671,13 +671,13 @@ class DAG(LoggingMixin):
         if isinstance(schedule, Timetable):
             self.timetable = schedule
             self.schedule_interval = schedule.summary
-        elif isinstance(schedule, BaseDataset):
+        elif isinstance(schedule, BaseAsset):
             self.timetable = DatasetTriggeredTimetable(schedule)
             self.schedule_interval = self.timetable.summary
         elif isinstance(schedule, Collection) and not isinstance(schedule, str):
             if not all(isinstance(x, (Dataset, DatasetAlias)) for x in schedule):
                 raise ValueError("All elements in 'schedule' should be datasets or dataset aliases")
-            self.timetable = DatasetTriggeredTimetable(DatasetAll(*schedule))
+            self.timetable = DatasetTriggeredTimetable(AssetAll(*schedule))
             self.schedule_interval = self.timetable.summary
         elif isinstance(schedule, ArgNotSet):
             warnings.warn(
@@ -2959,7 +2959,7 @@ class DAG(LoggingMixin):
 
         DagCode.bulk_sync_to_db(filelocs, session=session)
 
-        from airflow.datasets import Dataset
+        from airflow.assets import Dataset
         from airflow.models.dataset import (
             DagScheduleDatasetReference,
             DatasetModel,
@@ -2987,11 +2987,11 @@ class DAG(LoggingMixin):
                     if curr_orm_dag.schedule_dataset_alias_references:
                         curr_orm_dag.schedule_dataset_alias_references = []
             else:
-                for _, dataset in dataset_condition.iter_datasets():
+                for _, dataset in dataset_condition.iter_assets():
                     dag_references[dag.dag_id].add(Dataset(uri=dataset.uri))
                     input_datasets[DatasetModel.from_public(dataset)] = None
 
-                for dataset_alias in dataset_condition.iter_dataset_aliases():
+                for dataset_alias in dataset_condition.iter_asset_aliases():
                     dag_references[dag.dag_id].add(dataset_alias)
                     input_dataset_aliases.add(DatasetAliasModel.from_public(dataset_alias))
 
@@ -3040,7 +3040,7 @@ class DAG(LoggingMixin):
                 stored_datasets[stored_dataset.uri] = stored_dataset
             else:
                 new_datasets.append(dataset)
-        dataset_manager.create_datasets(dataset_models=new_datasets, session=session)
+        asset_manager.create_assets(asset_models=new_datasets, session=session)
         stored_datasets.update({dataset.uri: dataset for dataset in new_datasets})
 
         del new_datasets
@@ -3659,7 +3659,7 @@ class DagModel(Base):
         """
         from airflow.models.serialized_dag import SerializedDagModel
 
-        def dag_ready(dag_id: str, cond: BaseDataset, statuses: dict) -> bool | None:
+        def dag_ready(dag_id: str, cond: BaseAsset, statuses: dict) -> bool | None:
             # if dag was serialized before 2.9 and we *just* upgraded,
             # we may be dealing with old version.  In that case,
             # just wait for the dag to be reserialized.

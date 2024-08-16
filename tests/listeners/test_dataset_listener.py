@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from airflow.datasets import Dataset
+from airflow.assets import Dataset
 from airflow.listeners.listener import get_listener_manager
 from airflow.models.dataset import DatasetModel
 from airflow.operators.empty import EmptyOperator
@@ -40,7 +40,7 @@ def clean_listener_manager():
 @pytest.mark.skip_if_database_isolation_mode  # Test is broken in db isolation mode
 @pytest.mark.db_test
 @provide_session
-def test_dataset_listener_on_dataset_changed_gets_calls(create_task_instance_of_operator, session):
+def test_dataset_listener_on_asset_changed_gets_calls(create_task_instance_of_operator, session):
     dataset_uri = "test_dataset_uri"
     ds = Dataset(uri=dataset_uri)
     ds_model = DatasetModel(uri=dataset_uri)

@@ -25,12 +25,12 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.sql import select
 
-from airflow.datasets import (
-    BaseDataset,
+from airflow.assets import (
+    AssetAll,
+    AssetAny,
+    BaseAsset,
     Dataset,
     DatasetAlias,
-    DatasetAll,
-    DatasetAny,
     _DatasetAliasCondition,
     _get_normalized_scheme,
     _sanitize_uri,
@@ -88,7 +88,7 @@ def test_uri_with_auth() -> None:
         dataset = Dataset("ftp://user@localhost/foo.txt")
     assert len(record) == 1
     assert str(record[0].message) == (
-        "A dataset URI should not contain auth info (e.g. username or "
+        "An Asset URI should not contain auth info (e.g. username or "
         "password). It has been automatically dropped."
     )
     EmptyOperator(task_id="task1", outlets=[dataset])
@@ -128,29 +128,29 @@ def test_hash():
 
 def test_dataset_logic_operations():
     result_or = dataset1 | dataset2
-    assert isinstance(result_or, DatasetAny)
+    assert isinstance(result_or, AssetAny)
     result_and = dataset1 & dataset2
-    assert isinstance(result_and, DatasetAll)
+    assert isinstance(result_and, AssetAll)
 
 
-def test_dataset_iter_datasets():
-    assert list(dataset1.iter_datasets()) == [("s3://bucket1/data1", dataset1)]
+def test_dataset_iter_assets():
+    assert list(dataset1.iter_assets()) == [("s3://bucket1/data1", dataset1)]
 
 
 @pytest.mark.db_test
-def test_dataset_iter_dataset_aliases():
-    base_dataset = DatasetAll(
+def test_dataset_iter_asset_aliases():
+    base_dataset = AssetAll(
         DatasetAlias("example-alias-1"),
         Dataset("1"),
-        DatasetAny(
+        AssetAny(
             Dataset("2"),
             DatasetAlias("example-alias-2"),
             Dataset("3"),
-            DatasetAll(DatasetAlias("example-alias-3"), Dataset("4"), DatasetAlias("example-alias-4")),
+            AssetAll(DatasetAlias("example-alias-3"), Dataset("4"), DatasetAlias("example-alias-4")),
         ),
-        DatasetAll(DatasetAlias("example-alias-5"), Dataset("5")),
+        AssetAll(DatasetAlias("example-alias-5"), Dataset("5")),
     )
-    assert list(base_dataset.iter_dataset_aliases()) == [
+    assert list(base_dataset.iter_asset_aliases()) == [
         DatasetAlias(f"example-alias-{i}") for i in range(1, 6)
     ]
 
@@ -162,33 +162,33 @@ def test_dataset_evaluate():
 
 def test_dataset_any_operations():
     result_or = (dataset1 | dataset2) | dataset3
-    assert isinstance(result_or, DatasetAny)
+    assert isinstance(result_or, AssetAny)
     assert len(result_or.objects) == 3
     result_and = (dataset1 | dataset2) & dataset3
-    assert isinstance(result_and, DatasetAll)
+    assert isinstance(result_and, AssetAll)
 
 
-def test_dataset_all_operations():
+def test_asset_all_operations():
     result_or = (dataset1 & dataset2) | dataset3
-    assert isinstance(result_or, DatasetAny)
+    assert isinstance(result_or, AssetAny)
     result_and = (dataset1 & dataset2) & dataset3
-    assert isinstance(result_and, DatasetAll)
+    assert isinstance(result_and, AssetAll)
 
 
-def test_datasetbooleancondition_evaluate_iter():
+def test_assset_boolean_condition_evaluate_iter():
     """
-    Tests _DatasetBooleanCondition's evaluate and iter_datasets methods through DatasetAny and DatasetAll.
-    Ensures DatasetAny evaluate returns True with any true condition, DatasetAll evaluate returns False if
+    Tests _AssetBooleanCondition's evaluate and iter_assets methods through AssetAny and AssetAll.
+    Ensures AssetAny evaluate returns True with any true condition, AssetAll evaluate returns False if
     any condition is false, and both classes correctly iterate over datasets without duplication.
     """
-    any_condition = DatasetAny(dataset1, dataset2)
-    all_condition = DatasetAll(dataset1, dataset2)
+    any_condition = AssetAny(dataset1, dataset2)
+    all_condition = AssetAll(dataset1, dataset2)
     assert any_condition.evaluate({"s3://bucket1/data1": False, "s3://bucket2/data2": True}) is True
     assert all_condition.evaluate({"s3://bucket1/data1": True, "s3://bucket2/data2": False}) is False
 
-    # Testing iter_datasets indirectly through the subclasses
-    datasets_any = set(any_condition.iter_datasets())
-    datasets_all = set(all_condition.iter_datasets())
+    # Testing iter_assets indirectly through the subclasses
+    datasets_any = set(any_condition.iter_assets())
+    datasets_all = set(all_condition.iter_assets())
     assert datasets_any == {("s3://bucket1/data1", dataset1), ("s3://bucket2/data2", dataset2)}
     assert datasets_all == {("s3://bucket1/data1", dataset1), ("s3://bucket2/data2", dataset2)}
 
@@ -196,7 +196,7 @@ def test_datasetbooleancondition_evaluate_iter():
 @pytest.mark.parametrize(
     "inputs, scenario, expected",
     [
-        # Scenarios for DatasetAny
+        # Scenarios for AssetAny
         ((True, True, True), "any", True),
         ((True, True, False), "any", True),
         ((True, False, True), "any", True),
@@ -205,7 +205,7 @@ def test_datasetbooleancondition_evaluate_iter():
         ((False, True, False), "any", True),
         ((False, True, True), "any", True),
         ((False, False, False), "any", False),
-        # Scenarios for DatasetAll
+        # Scenarios for AssetAll
         ((True, True, True), "all", True),
         ((True, True, False), "all", False),
         ((True, False, True), "all", False),
@@ -217,7 +217,7 @@ def test_datasetbooleancondition_evaluate_iter():
     ],
 )
 def test_dataset_logical_conditions_evaluation_and_serialization(inputs, scenario, expected):
-    class_ = DatasetAny if scenario == "any" else DatasetAll
+    class_ = AssetAny if scenario == "any" else AssetAll
     datasets = [Dataset(uri=f"s3://abc/{i}") for i in range(123, 126)]
     condition = class_(*datasets)
 
@@ -235,10 +235,10 @@ def test_dataset_logical_conditions_evaluation_and_serialization(inputs, scenari
 @pytest.mark.parametrize(
     "status_values, expected_evaluation",
     [
-        ((False, True, True), False),  # DatasetAll requires all conditions to be True, but d1 is False
+        ((False, True, True), False),  # AssetAll requires all conditions to be True, but d1 is False
         ((True, True, True), True),  # All conditions are True
-        ((True, False, True), True),  # d1 is True, and DatasetAny condition (d2 or d3 being True) is met
-        ((True, False, False), False),  # d1 is True, but neither d2 nor d3 meet the DatasetAny condition
+        ((True, False, True), True),  # d1 is True, and AssetAny condition (d2 or d3 being True) is met
+        ((True, False, False), False),  # d1 is True, but neither d2 nor d3 meet the AssetAny condition
     ],
 )
 def test_nested_dataset_conditions_with_serialization(status_values, expected_evaluation):
@@ -247,8 +247,8 @@ def test_nested_dataset_conditions_with_serialization(status_values, expected_ev
     d2 = Dataset(uri="s3://abc/124")
     d3 = Dataset(uri="s3://abc/125")
 
-    # Create a nested condition: DatasetAll with d1 and DatasetAny with d2 and d3
-    nested_condition = DatasetAll(d1, DatasetAny(d2, d3))
+    # Create a nested condition: AssetAll with d1 and AssetAny with d2 and d3
+    nested_condition = AssetAll(d1, AssetAny(d2, d3))
 
     statuses = {
         d1.uri: status_values[0],
@@ -282,21 +282,21 @@ def test_dataset_trigger_setup_and_serialization(session, dag_maker, create_test
     datasets = create_test_datasets
 
     # Create DAG with dataset triggers
-    with dag_maker(schedule=DatasetAny(*datasets)) as dag:
+    with dag_maker(schedule=AssetAny(*datasets)) as dag:
         EmptyOperator(task_id="hello")
 
     # Verify datasets are set up correctly
     assert isinstance(
-        dag.timetable.dataset_condition, DatasetAny
-    ), "DAG datasets should be an instance of DatasetAny"
+        dag.timetable.dataset_condition, AssetAny
+    ), "DAG datasets should be an instance of AssetAny"
 
     # Round-trip the DAG through serialization
     deserialized_dag = SerializedDAG.deserialize_dag(SerializedDAG.serialize_dag(dag))
 
     # Verify serialization and deserialization integrity
     assert isinstance(
-        deserialized_dag.timetable.dataset_condition, DatasetAny
-    ), "Deserialized datasets should maintain type DatasetAny"
+        deserialized_dag.timetable.dataset_condition, AssetAny
+    ), "Deserialized datasets should maintain type AssetAny"
     assert (
         deserialized_dag.timetable.dataset_condition.objects == dag.timetable.dataset_condition.objects
     ), "Deserialized datasets should match original"
@@ -308,7 +308,7 @@ def test_dataset_dag_run_queue_processing(session, clear_datasets, dag_maker, cr
     datasets = create_test_datasets
     dataset_models = session.query(DatasetModel).all()
 
-    with dag_maker(schedule=DatasetAny(*datasets)) as dag:
+    with dag_maker(schedule=AssetAny(*datasets)) as dag:
         EmptyOperator(task_id="hello")
 
     # Add DatasetDagRunQueue entries to simulate dataset event processing
@@ -346,27 +346,27 @@ def test_dag_with_complex_dataset_condition(session, dag_maker):
     session.add_all([dm1, dm2])
     session.commit()
 
-    # Setup a DAG with complex dataset triggers (DatasetAny with DatasetAll)
-    with dag_maker(schedule=DatasetAny(d1, DatasetAll(d2, d1))) as dag:
+    # Setup a DAG with complex dataset triggers (AssetAny with AssetAll)
+    with dag_maker(schedule=AssetAny(d1, AssetAll(d2, d1))) as dag:
         EmptyOperator(task_id="hello")
 
     assert isinstance(
-        dag.timetable.dataset_condition, DatasetAny
-    ), "DAG's dataset trigger should be an instance of DatasetAny"
+        dag.timetable.dataset_condition, AssetAny
+    ), "DAG's dataset trigger should be an instance of AssetAny"
     assert any(
-        isinstance(trigger, DatasetAll) for trigger in dag.timetable.dataset_condition.objects
-    ), "DAG's dataset trigger should include DatasetAll"
+        isinstance(trigger, AssetAll) for trigger in dag.timetable.dataset_condition.objects
+    ), "DAG's dataset trigger should include AssetAll"
 
     serialized_triggers = SerializedDAG.serialize(dag.timetable.dataset_condition)
 
     deserialized_triggers = SerializedDAG.deserialize(serialized_triggers)
 
     assert isinstance(
-        deserialized_triggers, DatasetAny
-    ), "Deserialized triggers should be an instance of DatasetAny"
+        deserialized_triggers, AssetAny
+    ), "Deserialized triggers should be an instance of AssetAny"
     assert any(
-        isinstance(trigger, DatasetAll) for trigger in deserialized_triggers.objects
-    ), "Deserialized triggers should include DatasetAll"
+        isinstance(trigger, AssetAll) for trigger in deserialized_triggers.objects
+    ), "Deserialized triggers should include AssetAll"
 
     serialized_timetable_dict = SerializedDAG.to_dict(dag)["dag"]["timetable"]["__var"]
     assert (
@@ -377,20 +377,20 @@ def test_dag_with_complex_dataset_condition(session, dag_maker):
     ), "Serialized 'dataset_condition' should be a dict"
 
 
-def datasets_equal(d1: BaseDataset, d2: BaseDataset) -> bool:
-    if type(d1) is not type(d2):
+def datasets_equal(a1: BaseAsset, a2: BaseAsset) -> bool:
+    if type(a1) is not type(a2):
         return False
 
-    if isinstance(d1, Dataset) and isinstance(d2, Dataset):
-        return d1.uri == d2.uri
+    if isinstance(a1, Dataset) and isinstance(a2, Dataset):
+        return a1.uri == a2.uri
 
-    elif isinstance(d1, (DatasetAny, DatasetAll)) and isinstance(d2, (DatasetAny, DatasetAll)):
-        if len(d1.objects) != len(d2.objects):
+    elif isinstance(a1, (AssetAny, AssetAll)) and isinstance(a2, (AssetAny, AssetAll)):
+        if len(a1.objects) != len(a2.objects):
             return False
 
         # Compare each pair of objects
-        for obj1, obj2 in zip(d1.objects, d2.objects):
-            # If obj1 or obj2 is a Dataset, DatasetAny, or DatasetAll instance,
+        for obj1, obj2 in zip(a1.objects, a2.objects):
+            # If obj1 or obj2 is a Dataset, AssetAny, or AssetAll instance,
             # recursively call datasets_equal
             if not datasets_equal(obj1, obj2):
                 return False
@@ -407,32 +407,32 @@ dataset5 = Dataset(uri="s3://bucket5/data5")
 
 test_cases = [
     (lambda: dataset1, dataset1),
-    (lambda: dataset1 & dataset2, DatasetAll(dataset1, dataset2)),
-    (lambda: dataset1 | dataset2, DatasetAny(dataset1, dataset2)),
-    (lambda: dataset1 | (dataset2 & dataset3), DatasetAny(dataset1, DatasetAll(dataset2, dataset3))),
-    (lambda: dataset1 | dataset2 & dataset3, DatasetAny(dataset1, DatasetAll(dataset2, dataset3))),
+    (lambda: dataset1 & dataset2, AssetAll(dataset1, dataset2)),
+    (lambda: dataset1 | dataset2, AssetAny(dataset1, dataset2)),
+    (lambda: dataset1 | (dataset2 & dataset3), AssetAny(dataset1, AssetAll(dataset2, dataset3))),
+    (lambda: dataset1 | dataset2 & dataset3, AssetAny(dataset1, AssetAll(dataset2, dataset3))),
     (
         lambda: ((dataset1 & dataset2) | dataset3) & (dataset4 | dataset5),
-        DatasetAll(DatasetAny(DatasetAll(dataset1, dataset2), dataset3), DatasetAny(dataset4, dataset5)),
+        AssetAll(AssetAny(AssetAll(dataset1, dataset2), dataset3), AssetAny(dataset4, dataset5)),
     ),
-    (lambda: dataset1 & dataset2 | dataset3, DatasetAny(DatasetAll(dataset1, dataset2), dataset3)),
+    (lambda: dataset1 & dataset2 | dataset3, AssetAny(AssetAll(dataset1, dataset2), dataset3)),
     (
         lambda: (dataset1 | dataset2) & (dataset3 | dataset4),
-        DatasetAll(DatasetAny(dataset1, dataset2), DatasetAny(dataset3, dataset4)),
+        AssetAll(AssetAny(dataset1, dataset2), AssetAny(dataset3, dataset4)),
     ),
     (
         lambda: (dataset1 & dataset2) | (dataset3 & (dataset4 | dataset5)),
-        DatasetAny(DatasetAll(dataset1, dataset2), DatasetAll(dataset3, DatasetAny(dataset4, dataset5))),
+        AssetAny(AssetAll(dataset1, dataset2), AssetAll(dataset3, AssetAny(dataset4, dataset5))),
     ),
     (
         lambda: (dataset1 & dataset2) & (dataset3 & dataset4),
-        DatasetAll(dataset1, dataset2, DatasetAll(dataset3, dataset4)),
+        AssetAll(dataset1, dataset2, AssetAll(dataset3, dataset4)),
     ),
-    (lambda: dataset1 | dataset2 | dataset3, DatasetAny(dataset1, dataset2, dataset3)),
-    (lambda: dataset1 & dataset2 & dataset3, DatasetAll(dataset1, dataset2, dataset3)),
+    (lambda: dataset1 | dataset2 | dataset3, AssetAny(dataset1, dataset2, dataset3)),
+    (lambda: dataset1 & dataset2 & dataset3, AssetAll(dataset1, dataset2, dataset3)),
     (
         lambda: ((dataset1 & dataset2) | dataset3) & (dataset4 | dataset5),
-        DatasetAll(DatasetAny(DatasetAll(dataset1, dataset2), dataset3), DatasetAny(dataset4, dataset5)),
+        AssetAll(AssetAny(AssetAll(dataset1, dataset2), dataset3), AssetAny(dataset4, dataset5)),
     ),
 ]
 
@@ -457,14 +457,14 @@ def test_evaluate_datasets_expression(expression, expected):
             id="|",
         ),
         pytest.param(
-            lambda: DatasetAll(1, dataset1),  # type: ignore[arg-type]
-            "expect dataset expressions in condition",
-            id="DatasetAll",
+            lambda: AssetAll(1, dataset1),  # type: ignore[arg-type]
+            "expect asset expressions in condition",
+            id="AssetAll",
         ),
         pytest.param(
-            lambda: DatasetAny(1, dataset1),  # type: ignore[arg-type]
-            "expect dataset expressions in condition",
-            id="DatasetAny",
+            lambda: AssetAny(1, dataset1),  # type: ignore[arg-type]
+            "expect asset expressions in condition",
+            id="AssetAny",
         ),
     ],
 )
@@ -499,8 +499,8 @@ def _mock_get_uri_normalizer_noop(normalized_scheme):
     return normalizer
 
 
-@patch("airflow.datasets._get_uri_normalizer", _mock_get_uri_normalizer_raising_error)
-@patch("airflow.datasets.warnings.warn")
+@patch("airflow.assets._get_uri_normalizer", _mock_get_uri_normalizer_raising_error)
+@patch("airflow.assets.warnings.warn")
 def test_sanitize_uri_raises_warning(mock_warn):
     _sanitize_uri("postgres://localhost:5432/database.schema.table")
     msg = mock_warn.call_args.args[0]
@@ -508,7 +508,7 @@ def test_sanitize_uri_raises_warning(mock_warn):
     assert "In Airflow 3, this will raise an exception." in msg
 
 
-@patch("airflow.datasets._get_uri_normalizer", _mock_get_uri_normalizer_raising_error)
+@patch("airflow.assets._get_uri_normalizer", _mock_get_uri_normalizer_raising_error)
 @conf_vars({("core", "strict_dataset_uri_validation"): "True"})
 def test_sanitize_uri_raises_exception():
     with pytest.raises(ValueError) as e_info:
@@ -517,20 +517,20 @@ def test_sanitize_uri_raises_exception():
     assert str(e_info.value) == "Incorrect URI format"
 
 
-@patch("airflow.datasets._get_uri_normalizer", lambda x: None)
+@patch("airflow.assets._get_uri_normalizer", lambda x: None)
 def test_normalize_uri_no_normalizer_found():
     dataset = Dataset(uri="any_uri_without_normalizer_defined")
     assert dataset.normalized_uri is None
 
 
-@patch("airflow.datasets._get_uri_normalizer", _mock_get_uri_normalizer_raising_error)
+@patch("airflow.assets._get_uri_normalizer", _mock_get_uri_normalizer_raising_error)
 def test_normalize_uri_invalid_uri():
     dataset = Dataset(uri="any_uri_not_aip60_compliant")
     assert dataset.normalized_uri is None
 
 
-@patch("airflow.datasets._get_uri_normalizer", _mock_get_uri_normalizer_noop)
-@patch("airflow.datasets._get_normalized_scheme", lambda x: "valid_scheme")
+@patch("airflow.assets._get_uri_normalizer", _mock_get_uri_normalizer_noop)
+@patch("airflow.assets._get_normalized_scheme", lambda x: "valid_scheme")
 def test_normalize_uri_valid_uri():
     dataset = Dataset(uri="valid_aip60_uri")
     assert dataset.normalized_uri == "valid_aip60_uri"

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Collection, Sequence
 
-from airflow.datasets import DatasetAlias, _DatasetAliasCondition
+from airflow.assets import DatasetAlias, _DatasetAliasCondition
 from airflow.timetables.base import DagRunInfo, DataInterval, Timetable
 from airflow.utils import timezone
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from pendulum import DateTime
     from sqlalchemy import Session
 
-    from airflow.datasets import BaseDataset
+    from airflow.assets import BaseAsset
     from airflow.models.dataset import DatasetEvent
     from airflow.timetables.base import TimeRestriction
     from airflow.utils.types import DagRunType
@@ -163,13 +163,13 @@ class DatasetTriggeredTimetable(_TrivialTimetable):
 
     description: str = "Triggered by datasets"
 
-    def __init__(self, datasets: BaseDataset) -> None:
+    def __init__(self, datasets: BaseAsset) -> None:
         super().__init__()
         self.dataset_condition = datasets
         if isinstance(self.dataset_condition, DatasetAlias):
             self.dataset_condition = _DatasetAliasCondition(self.dataset_condition.name)
 
-        if not next(self.dataset_condition.iter_datasets(), False):
+        if not next(self.dataset_condition.iter_assets(), False):
             self._summary = "Unresolved DatasetAlias"
         else:
             self._summary = "Dataset"

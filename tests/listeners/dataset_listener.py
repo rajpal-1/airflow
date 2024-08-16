@@ -23,7 +23,7 @@ import typing
 from airflow.listeners import hookimpl
 
 if typing.TYPE_CHECKING:
-    from airflow.datasets import Dataset
+    from airflow.assets import Dataset
 
 
 changed: list[Dataset] = []
@@ -31,13 +31,13 @@ created: list[Dataset] = []
 
 
 @hookimpl
-def on_dataset_changed(dataset):
-    changed.append(copy.deepcopy(dataset))
+def on_asset_changed(asset):
+    changed.append(copy.deepcopy(asset))
 
 
 @hookimpl
-def on_dataset_created(dataset):
-    created.append(copy.deepcopy(dataset))
+def on_asset_created(asset):
+    created.append(copy.deepcopy(asset))
 
 
 def clear():

@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 from airflow.configuration import conf
 
-__all__ = ["Dataset", "DatasetAll", "DatasetAny"]
+__all__ = ["Dataset", "AssetAll", "AssetAny"]
 
 
 def normalize_noop(parts: SplitResult) -> SplitResult:
@@ -65,17 +65,17 @@ def _get_normalized_scheme(uri: str) -> str:
 
 def _sanitize_uri(uri: str) -> str:
     """
-    Sanitize a dataset URI.
+    Sanitize an asset URI.
 
     This checks for URI validity, and normalizes the URI if needed. A fully
     normalized URI is returned.
     """
     if not uri:
-        raise ValueError("Dataset URI cannot be empty")
+        raise ValueError("Asset URI cannot be empty")
     if uri.isspace():
-        raise ValueError("Dataset URI cannot be just whitespace")
+        raise ValueError("Asset URI cannot be just whitespace")
     if not uri.isascii():
-        raise ValueError("Dataset URI must only consist of ASCII characters")
+        raise ValueError("Asset URI must only consist of ASCII characters")
     parsed = urllib.parse.urlsplit(uri)
     if not parsed.scheme and not parsed.netloc:  # Does not look like a URI.
         return uri
@@ -84,12 +84,12 @@ def _sanitize_uri(uri: str) -> str:
     if normalized_scheme.startswith("x-"):
         return uri
     if normalized_scheme == "airflow":
-        raise ValueError("Dataset scheme 'airflow' is reserved")
+        raise ValueError("Asset scheme 'airflow' is reserved")
     _, auth_exists, normalized_netloc = parsed.netloc.rpartition("@")
     if auth_exists:
         # TODO: Collect this into a DagWarning.
         warnings.warn(
-            "A dataset URI should not contain auth info (e.g. username or "
+            "An Asset URI should not contain auth info (e.g. username or "
             "password). It has been automatically dropped.",
             UserWarning,
             stacklevel=3,
@@ -141,9 +141,7 @@ def extract_event_key(value: str | Dataset | DatasetAlias) -> str:
 
 @internal_api_call
 @provide_session
-def expand_alias_to_datasets(
-    alias: str | DatasetAlias, *, session: Session = NEW_SESSION
-) -> list[BaseDataset]:
+def expand_alias_to_datasets(alias: str | DatasetAlias, *, session: Session = NEW_SESSION) -> list[BaseAsset]:
     """Expand dataset alias to resolved datasets."""
     from airflow.models.dataset import DatasetAliasModel
 
@@ -157,9 +155,9 @@ def expand_alias_to_datasets(
     return []
 
 
-class BaseDataset:
+class BaseAsset:
     """
-    Protocol for all dataset triggers to use in ``DAG(schedule=...)``.
+    Protocol for all asset triggers to use in ``DAG(schedule=...)``.
 
     :meta private:
     """
@@ -167,19 +165,19 @@ class BaseDataset:
     def __bool__(self) -> bool:
         return True
 
-    def __or__(self, other: BaseDataset) -> BaseDataset:
-        if not isinstance(other, BaseDataset):
+    def __or__(self, other: BaseAsset) -> BaseAsset:
+        if not isinstance(other, BaseAsset):
             return NotImplemented
-        return DatasetAny(self, other)
+        return AssetAny(self, other)
 
-    def __and__(self, other: BaseDataset) -> BaseDataset:
-        if not isinstance(other, BaseDataset):
+    def __and__(self, other: BaseAsset) -> BaseAsset:
+        if not isinstance(other, BaseAsset):
             return NotImplemented
-        return DatasetAll(self, other)
+        return AssetAll(self, other)
 
     def as_expression(self) -> Any:
         """
-        Serialize the dataset into its scheduling expression.
+        Serialize the asset into its scheduling expression.
 
         The return value is stored in DagModel for display purposes. It must be
         JSON-compatible.
@@ -191,10 +189,10 @@ class BaseDataset:
     def evaluate(self, statuses: dict[str, bool]) -> bool:
         raise NotImplementedError
 
-    def iter_datasets(self) -> Iterator[tuple[str, Dataset]]:
+    def iter_assets(self) -> Iterator[tuple[str, Dataset]]:
         raise NotImplementedError
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         raise NotImplementedError
 
     def iter_dag_dependencies(self, *, source: str, target: str) -> Iterator[DagDependency]:
@@ -207,7 +205,7 @@ class BaseDataset:
 
 
 @attr.define()
-class DatasetAlias(BaseDataset):
+class DatasetAlias(BaseAsset):
     """A represeation of dataset alias which is used to create dataset during the runtime."""
 
     name: str
@@ -234,15 +232,15 @@ class DatasetAlias(BaseDataset):
         )
 
 
-class DatasetAliasEvent(TypedDict):
-    """A represeation of dataset event to be triggered by a dataset alias."""
+class AssetAliasEvent(TypedDict):
+    """A represeation of asset event to be triggered by an asset alias."""
 
     source_alias_name: str
-    dest_dataset_uri: str
+    dest_asset_uri: str
 
 
 @attr.define()
-class Dataset(os.PathLike, BaseDataset):
+class Dataset(os.PathLike, BaseAsset):
     """A representation of data dependencies between workflows."""
 
     uri: str = attr.field(
@@ -294,10 +292,10 @@ class Dataset(os.PathLike, BaseDataset):
         """
         return self.uri
 
-    def iter_datasets(self) -> Iterator[tuple[str, Dataset]]:
+    def iter_assets(self) -> Iterator[tuple[str, Dataset]]:
         yield self.uri, self
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         return iter(())
 
     def evaluate(self, statuses: dict[str, bool]) -> bool:
@@ -317,14 +315,14 @@ class Dataset(os.PathLike, BaseDataset):
         )
 
 
-class _DatasetBooleanCondition(BaseDataset):
-    """Base class for dataset boolean logic."""
+class _AssetBooleanCondition(BaseAsset):
+    """Base class for asset boolean logic."""
 
     agg_func: Callable[[Iterable], bool]
 
-    def __init__(self, *objects: BaseDataset) -> None:
-        if not all(isinstance(o, BaseDataset) for o in objects):
-            raise TypeError("expect dataset expressions in condition")
+    def __init__(self, *objects: BaseAsset) -> None:
+        if not all(isinstance(o, BaseAsset) for o in objects):
+            raise TypeError("expect asset expressions in condition")
 
         self.objects = [
             _DatasetAliasCondition(obj.name) if isinstance(obj, DatasetAlias) else obj for obj in objects
@@ -333,19 +331,19 @@ class _DatasetBooleanCondition(BaseDataset):
     def evaluate(self, statuses: dict[str, bool]) -> bool:
         return self.agg_func(x.evaluate(statuses=statuses) for x in self.objects)
 
-    def iter_datasets(self) -> Iterator[tuple[str, Dataset]]:
+    def iter_assets(self) -> Iterator[tuple[str, Dataset]]:
         seen = set()  # We want to keep the first instance.
         for o in self.objects:
-            for k, v in o.iter_datasets():
+            for k, v in o.iter_assets():
                 if k in seen:
                     continue
                 yield k, v
                 seen.add(k)
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         """Filter dataest aliases in the condition."""
         for o in self.objects:
-            yield from o.iter_dataset_aliases()
+            yield from o.iter_asset_aliases()
 
     def iter_dag_dependencies(self, *, source: str, target: str) -> Iterator[DagDependency]:
         """
@@ -357,32 +355,32 @@ class _DatasetBooleanCondition(BaseDataset):
             yield from obj.iter_dag_dependencies(source=source, target=target)
 
 
-class DatasetAny(_DatasetBooleanCondition):
-    """Use to combine datasets schedule references in an "and" relationship."""
+class AssetAny(_AssetBooleanCondition):
+    """Use to combine assets schedule references in an "and" relationship."""
 
     agg_func = any
 
-    def __or__(self, other: BaseDataset) -> BaseDataset:
-        if not isinstance(other, BaseDataset):
+    def __or__(self, other: BaseAsset) -> BaseAsset:
+        if not isinstance(other, BaseAsset):
             return NotImplemented
         # Optimization: X | (Y | Z) is equivalent to X | Y | Z.
-        return DatasetAny(*self.objects, other)
+        return AssetAny(*self.objects, other)
 
     def __repr__(self) -> str:
-        return f"DatasetAny({', '.join(map(str, self.objects))})"
+        return f"AssetAny({', '.join(map(str, self.objects))})"
 
     def as_expression(self) -> dict[str, Any]:
         """
-        Serialize the dataset into its scheduling expression.
+        Serialize the asset into its scheduling expression.
 
         :meta private:
         """
         return {"any": [o.as_expression() for o in self.objects]}
 
 
-class _DatasetAliasCondition(DatasetAny):
+class _DatasetAliasCondition(AssetAny):
     """
-    Use to expand DataAlias as DatasetAny of its resolved Datasets.
+    Use to expand DataAlias as AssetAny of its resolved Datasets.
 
     :meta private:
     """
@@ -402,7 +400,7 @@ class _DatasetAliasCondition(DatasetAny):
         """
         return {"alias": self.name}
 
-    def iter_dataset_aliases(self) -> Iterator[DatasetAlias]:
+    def iter_asset_aliases(self) -> Iterator[DatasetAlias]:
         yield DatasetAlias(self.name)
 
     def iter_dag_dependencies(self, *, source: str = "", target: str = "") -> Iterator[DagDependency]:
@@ -438,19 +436,19 @@ class _DatasetAliasCondition(DatasetAny):
             )
 
 
-class DatasetAll(_DatasetBooleanCondition):
+class AssetAll(_AssetBooleanCondition):
     """Use to combine datasets schedule references in an "or" relationship."""
 
     agg_func = all
 
-    def __and__(self, other: BaseDataset) -> BaseDataset:
-        if not isinstance(other, BaseDataset):
+    def __and__(self, other: BaseAsset) -> BaseAsset:
+        if not isinstance(other, BaseAsset):
             return NotImplemented
         # Optimization: X & (Y & Z) is equivalent to X & Y & Z.
-        return DatasetAll(*self.objects, other)
+        return AssetAll(*self.objects, other)
 
     def __repr__(self) -> str:
-        return f"DatasetAll({', '.join(map(str, self.objects))})"
+        return f"AssetAll({', '.join(map(str, self.objects))})"
 
     def as_expression(self) -> Any:
         """

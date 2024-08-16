@@ -24,8 +24,8 @@ from unittest import mock
 import pytest
 from sqlalchemy import delete
 
-from airflow.datasets import Dataset
-from airflow.datasets.manager import DatasetManager
+from airflow.assets import Dataset
+from airflow.assets.manager import AssetManager
 from airflow.listeners.listener import get_listener_manager
 from airflow.models.dag import DagModel
 from airflow.models.dataset import DagScheduleDatasetReference, DatasetDagRunQueue, DatasetEvent, DatasetModel
@@ -90,9 +90,9 @@ def create_mock_dag():
         yield mock_dag
 
 
-class TestDatasetManager:
-    def test_register_dataset_change_dataset_doesnt_exist(self, mock_task_instance):
-        dsem = DatasetManager()
+class TestAssetManager:
+    def test_register_asset_change_dataset_doesnt_exist(self, mock_task_instance):
+        dsem = AssetManager()
 
         dataset = Dataset(uri="dataset_doesnt_exist")
 
@@ -100,15 +100,15 @@ class TestDatasetManager:
         # Gotta mock up the query results
         mock_session.scalar.return_value = None
 
-        dsem.register_dataset_change(task_instance=mock_task_instance, dataset=dataset, session=mock_session)
+        dsem.register_asset_change(task_instance=mock_task_instance, asset=dataset, session=mock_session)
 
         # Ensure that we have ignored the dataset and _not_ created a DatasetEvent or
         # DatasetDagRunQueue rows
         mock_session.add.assert_not_called()
         mock_session.merge.assert_not_called()
 
-    def test_register_dataset_change(self, session, dag_maker, mock_task_instance):
-        dsem = DatasetManager()
+    def test_register_asset_change(self, session, dag_maker, mock_task_instance):
+        dsem = AssetManager()
 
         ds = Dataset(uri="test_dataset_uri")
         dag1 = DagModel(dag_id="dag1", is_active=True)
@@ -121,14 +121,14 @@ class TestDatasetManager:
         session.execute(delete(DatasetDagRunQueue))
         session.commit()
 
-        dsem.register_dataset_change(task_instance=mock_task_instance, dataset=ds, session=session)
+        dsem.register_asset_change(task_instance=mock_task_instance, asset=ds, session=session)
 
         # Ensure we've created a dataset
         assert session.query(DatasetEvent).filter_by(dataset_id=dsm.id).count() == 1
         assert session.query(DatasetDagRunQueue).count() == 2
 
-    def test_register_dataset_change_no_downstreams(self, session, mock_task_instance):
-        dsem = DatasetManager()
+    def test_register_asset_change_no_downstreams(self, session, mock_task_instance):
+        dsem = AssetManager()
 
         ds = Dataset(uri="never_consumed")
         dsm = DatasetModel(uri="never_consumed")
@@ -136,15 +136,15 @@ class TestDatasetManager:
         session.execute(delete(DatasetDagRunQueue))
         session.commit()
 
-        dsem.register_dataset_change(task_instance=mock_task_instance, dataset=ds, session=session)
+        dsem.register_asset_change(task_instance=mock_task_instance, asset=ds, session=session)
 
         # Ensure we've created a dataset
         assert session.query(DatasetEvent).filter_by(dataset_id=dsm.id).count() == 1
         assert session.query(DatasetDagRunQueue).count() == 0
 
     @pytest.mark.skip_if_database_isolation_mode
-    def test_register_dataset_change_notifies_dataset_listener(self, session, mock_task_instance):
-        dsem = DatasetManager()
+    def test_register_asset_change_notifies_dataset_listener(self, session, mock_task_instance):
+        dsem = AssetManager()
         dataset_listener.clear()
         get_listener_manager().add_listener(dataset_listener)
 
@@ -157,21 +157,21 @@ class TestDatasetManager:
         dsm.consuming_dags = [DagScheduleDatasetReference(dag_id=dag1.dag_id)]
         session.commit()
 
-        dsem.register_dataset_change(task_instance=mock_task_instance, dataset=ds, session=session)
+        dsem.register_asset_change(task_instance=mock_task_instance, asset=ds, session=session)
 
         # Ensure the listener was notified
         assert len(dataset_listener.changed) == 1
         assert dataset_listener.changed[0].uri == ds.uri
 
     @pytest.mark.skip_if_database_isolation_mode
-    def test_create_datasets_notifies_dataset_listener(self, session):
-        dsem = DatasetManager()
+    def test_create_assets_notifies_dataset_listener(self, session):
+        dsem = AssetManager()
         dataset_listener.clear()
         get_listener_manager().add_listener(dataset_listener)
 
         dsm = DatasetModel(uri="test_dataset_uri_3")
 
-        dsem.create_datasets([dsm], session)
+        dsem.create_assets([dsm], session)
 
         # Ensure the listener was notified
         assert len(dataset_listener.created) == 1

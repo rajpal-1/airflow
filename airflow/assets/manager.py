@@ -24,8 +24,8 @@ from sqlalchemy import exc, select
 from sqlalchemy.orm import joinedload
 
 from airflow.api_internal.internal_api_call import internal_api_call
+from airflow.assets import Dataset
 from airflow.configuration import conf
-from airflow.datasets import Dataset
 from airflow.listeners.listener import get_listener_manager
 from airflow.models.dagbag import DagPriorityParsingRequest
 from airflow.models.dataset import (
@@ -47,57 +47,57 @@ if TYPE_CHECKING:
     from airflow.models.taskinstance import TaskInstance
 
 
-class DatasetManager(LoggingMixin):
+class AssetManager(LoggingMixin):
     """
-    A pluggable class that manages operations for datasets.
+    A pluggable class that manages operations for assets.
 
-    The intent is to have one place to handle all Dataset-related operations, so different
-    Airflow deployments can use plugins that broadcast dataset events to each other.
+    The intent is to have one place to handle all Asset-related operations, so different
+    Airflow deployments can use plugins that broadcast Asset events to each other.
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def create_datasets(self, dataset_models: list[DatasetModel], session: Session) -> None:
-        """Create new datasets."""
-        for dataset_model in dataset_models:
-            session.add(dataset_model)
+    def create_assets(self, asset_models: list[DatasetModel], session: Session) -> None:
+        """Create new assets."""
+        for asset_model in asset_models:
+            session.add(asset_model)
         session.flush()
 
-        for dataset_model in dataset_models:
-            self.notify_dataset_created(dataset=Dataset(uri=dataset_model.uri, extra=dataset_model.extra))
+        for asset_model in asset_models:
+            self.notify_asset_created(asset=Dataset(uri=asset_model.uri, extra=asset_model.extra))
 
     @classmethod
     @internal_api_call
     @provide_session
-    def register_dataset_change(
+    def register_asset_change(
         cls,
         *,
         task_instance: TaskInstance | None = None,
-        dataset: Dataset,
+        asset: Dataset,
         extra=None,
         session: Session = NEW_SESSION,
         source_alias_names: Iterable[str] | None = None,
         **kwargs,
     ) -> DatasetEvent | None:
         """
-        Register dataset related changes.
+        Register asset related changes.
 
-        For local datasets, look them up, record the dataset event, queue dagruns, and broadcast
-        the dataset event
+        For local assets, look them up, record the asset event, queue dagruns, and broadcast
+        the asset event
         """
         # todo: add test so that all usages of internal_api_call are added to rpc endpoint
-        dataset_model = session.scalar(
+        asset_model = session.scalar(
             select(DatasetModel)
-            .where(DatasetModel.uri == dataset.uri)
+            .where(DatasetModel.uri == asset.uri)
             .options(joinedload(DatasetModel.consuming_dags).joinedload(DagScheduleDatasetReference.dag))
         )
-        if not dataset_model:
-            cls.logger().warning("DatasetModel %s not found", dataset)
+        if not asset_model:
+            cls.logger().warning("AssetModel %s not found", asset)
             return None
 
         event_kwargs = {
-            "dataset_id": dataset_model.id,
+            "dataset_id": asset_model.id,
             "extra": extra,
         }
         if task_instance:
@@ -110,15 +110,15 @@ class DatasetManager(LoggingMixin):
                 }
             )
 
-        dataset_event = DatasetEvent(**event_kwargs)
-        session.add(dataset_event)
+        asset_event = DatasetEvent(**event_kwargs)
+        session.add(asset_event)
 
-        dags_to_queue_from_dataset = {
-            ref.dag for ref in dataset_model.consuming_dags if ref.dag.is_active and not ref.dag.is_paused
+        dags_to_queue_from_asset = {
+            ref.dag for ref in asset_model.consuming_dags if ref.dag.is_active and not ref.dag.is_paused
         }
-        dags_to_queue_from_dataset_alias = set()
+        dags_to_queue_from_asset_alias = set()
         if source_alias_names:
-            dataset_alias_models = session.scalars(
+            asset_alias_models = session.scalars(
                 select(DatasetAliasModel)
                 .where(DatasetAliasModel.name.in_(source_alias_names))
                 .options(
@@ -128,44 +128,44 @@ class DatasetManager(LoggingMixin):
                 )
             ).unique()
 
-            for dsa in dataset_alias_models:
-                dsa.dataset_events.append(dataset_event)
-                session.add(dsa)
+            for asset_alias_model in asset_alias_models:
+                asset_alias_model.dataset_events.append(asset_event)
+                session.add(asset_alias_model)
 
-                dags_to_queue_from_dataset_alias |= {
+                dags_to_queue_from_asset_alias |= {
                     alias_ref.dag
-                    for alias_ref in dsa.consuming_dags
+                    for alias_ref in asset_alias_model.consuming_dags
                     if alias_ref.dag.is_active and not alias_ref.dag.is_paused
                 }
 
-        dags_to_reparse = dags_to_queue_from_dataset_alias - dags_to_queue_from_dataset
+        dags_to_reparse = dags_to_queue_from_asset_alias - dags_to_queue_from_asset
         if dags_to_reparse:
             file_locs = {dag.fileloc for dag in dags_to_reparse}
             cls._send_dag_priority_parsing_request(file_locs, session)
         session.flush()
 
-        cls.notify_dataset_changed(dataset=dataset)
+        cls.notify_dataset_changed(asset=asset)
 
         Stats.incr("dataset.updates")
 
-        dags_to_queue = dags_to_queue_from_dataset | dags_to_queue_from_dataset_alias
-        cls._queue_dagruns(dataset_id=dataset_model.id, dags_to_queue=dags_to_queue, session=session)
+        dags_to_queue = dags_to_queue_from_asset | dags_to_queue_from_asset_alias
+        cls._queue_dagruns(asset_id=asset_model.id, dags_to_queue=dags_to_queue, session=session)
         session.flush()
-        return dataset_event
+        return asset_event
 
-    def notify_dataset_created(self, dataset: Dataset):
-        """Run applicable notification actions when a dataset is created."""
-        get_listener_manager().hook.on_dataset_created(dataset=dataset)
-
-    @classmethod
-    def notify_dataset_changed(cls, dataset: Dataset):
-        """Run applicable notification actions when a dataset is changed."""
-        get_listener_manager().hook.on_dataset_changed(dataset=dataset)
+    def notify_asset_created(self, asset: Dataset):
+        """Run applicable notification actions when a asset is created."""
+        get_listener_manager().hook.on_asset_created(asset=asset)
 
     @classmethod
-    def _queue_dagruns(cls, dataset_id: int, dags_to_queue: set[DagModel], session: Session) -> None:
+    def notify_dataset_changed(cls, asset: Dataset):
+        """Run applicable notification actions when a asset is changed."""
+        get_listener_manager().hook.on_asset_changed(asset=asset)
+
+    @classmethod
+    def _queue_dagruns(cls, asset_id: int, dags_to_queue: set[DagModel], session: Session) -> None:
         # Possible race condition: if multiple dags or multiple (usually
-        # mapped) tasks update the same dataset, this can fail with a unique
+        # mapped) tasks update the same asset, this can fail with a unique
         # constraint violation.
         #
         # If we support it, use ON CONFLICT to do nothing, otherwise
@@ -176,15 +176,13 @@ class DatasetManager(LoggingMixin):
             return
 
         if session.bind.dialect.name == "postgresql":
-            return cls._postgres_queue_dagruns(dataset_id, dags_to_queue, session)
-        return cls._slow_path_queue_dagruns(dataset_id, dags_to_queue, session)
+            return cls._postgres_queue_dagruns(asset_id, dags_to_queue, session)
+        return cls._slow_path_queue_dagruns(asset_id, dags_to_queue, session)
 
     @classmethod
-    def _slow_path_queue_dagruns(
-        cls, dataset_id: int, dags_to_queue: set[DagModel], session: Session
-    ) -> None:
+    def _slow_path_queue_dagruns(cls, asset_id: int, dags_to_queue: set[DagModel], session: Session) -> None:
         def _queue_dagrun_if_needed(dag: DagModel) -> str | None:
-            item = DatasetDagRunQueue(target_dag_id=dag.dag_id, dataset_id=dataset_id)
+            item = DatasetDagRunQueue(target_dag_id=dag.dag_id, dataset_id=asset_id)
             # Don't error whole transaction when a single RunQueue item conflicts.
             # https://docs.sqlalchemy.org/en/14/orm/session_transaction.html#using-savepoint
             try:
@@ -199,11 +197,11 @@ class DatasetManager(LoggingMixin):
             cls.logger().debug("consuming dag ids %s", queued_dag_ids)
 
     @classmethod
-    def _postgres_queue_dagruns(cls, dataset_id: int, dags_to_queue: set[DagModel], session: Session) -> None:
+    def _postgres_queue_dagruns(cls, asset_id: int, dags_to_queue: set[DagModel], session: Session) -> None:
         from sqlalchemy.dialects.postgresql import insert
 
         values = [{"target_dag_id": dag.dag_id} for dag in dags_to_queue]
-        stmt = insert(DatasetDagRunQueue).values(dataset_id=dataset_id).on_conflict_do_nothing()
+        stmt = insert(DatasetDagRunQueue).values(dataset_id=asset_id).on_conflict_do_nothing()
         session.execute(stmt, values)
 
     @classmethod
@@ -236,19 +234,19 @@ class DatasetManager(LoggingMixin):
         session.execute(stmt, {"fileloc": fileloc for fileloc in file_locs})
 
 
-def resolve_dataset_manager() -> DatasetManager:
-    """Retrieve the dataset manager."""
-    _dataset_manager_class = conf.getimport(
+def resolve_asset_manager() -> AssetManager:
+    """Retrieve the asset manager."""
+    _asset_manager_class = conf.getimport(
         section="core",
-        key="dataset_manager_class",
-        fallback="airflow.datasets.manager.DatasetManager",
+        key="asset_manager_class",
+        fallback="airflow.assets.manager.AssetManager",
     )
-    _dataset_manager_kwargs = conf.getjson(
+    _asset_manager_kwargs = conf.getjson(
         section="core",
-        key="dataset_manager_kwargs",
+        key="asset_manager_kwargs",
         fallback={},
     )
-    return _dataset_manager_class(**_dataset_manager_kwargs)
+    return _asset_manager_class(**_asset_manager_kwargs)
 
 
-dataset_manager = resolve_dataset_manager()
+asset_manager = resolve_asset_manager()

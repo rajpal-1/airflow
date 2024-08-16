@@ -35,17 +35,17 @@ from dateutil import relativedelta
 from pendulum.tz.timezone import FixedTimezone, Timezone
 
 from airflow import macros
+from airflow.assets import (
+    AssetAll,
+    AssetAny,
+    BaseAsset,
+    Dataset,
+    DatasetAlias,
+    _DatasetAliasCondition,
+)
 from airflow.callbacks.callback_requests import DagCallbackRequest, SlaCallbackRequest, TaskCallbackRequest
 from airflow.compat.functools import cache
 from airflow.configuration import conf
-from airflow.datasets import (
-    BaseDataset,
-    Dataset,
-    DatasetAlias,
-    DatasetAll,
-    DatasetAny,
-    _DatasetAliasCondition,
-)
 from airflow.exceptions import AirflowException, RemovedInAirflow3Warning, SerializationError, TaskDeferred
 from airflow.jobs.job import Job
 from airflow.models import Trigger
@@ -247,7 +247,7 @@ class _PriorityWeightStrategyNotRegistered(AirflowException):
         )
 
 
-def encode_dataset_condition(var: BaseDataset) -> dict[str, Any]:
+def encode_dataset_condition(var: BaseAsset) -> dict[str, Any]:
     """
     Encode a dataset condition.
 
@@ -257,14 +257,14 @@ def encode_dataset_condition(var: BaseDataset) -> dict[str, Any]:
         return {"__type": DAT.DATASET, "uri": var.uri, "extra": var.extra}
     if isinstance(var, DatasetAlias):
         return {"__type": DAT.DATASET_ALIAS, "name": var.name}
-    if isinstance(var, DatasetAll):
+    if isinstance(var, AssetAll):
         return {"__type": DAT.DATASET_ALL, "objects": [encode_dataset_condition(x) for x in var.objects]}
-    if isinstance(var, DatasetAny):
+    if isinstance(var, AssetAny):
         return {"__type": DAT.DATASET_ANY, "objects": [encode_dataset_condition(x) for x in var.objects]}
     raise ValueError(f"serialization not implemented for {type(var).__name__!r}")
 
 
-def decode_dataset_condition(var: dict[str, Any]) -> BaseDataset:
+def decode_dataset_condition(var: dict[str, Any]) -> BaseAsset:
     """
     Decode a previously serialized dataset condition.
 
@@ -274,9 +274,9 @@ def decode_dataset_condition(var: dict[str, Any]) -> BaseDataset:
     if dat == DAT.DATASET:
         return Dataset(var["uri"], extra=var["extra"])
     if dat == DAT.DATASET_ALL:
-        return DatasetAll(*(decode_dataset_condition(x) for x in var["objects"]))
+        return AssetAll(*(decode_dataset_condition(x) for x in var["objects"]))
     if dat == DAT.DATASET_ANY:
-        return DatasetAny(*(decode_dataset_condition(x) for x in var["objects"]))
+        return AssetAny(*(decode_dataset_condition(x) for x in var["objects"]))
     if dat == DAT.DATASET_ALIAS:
         return DatasetAlias(name=var["name"])
     raise ValueError(f"deserialization not implemented for DAT {dat!r}")
@@ -286,7 +286,7 @@ def encode_outlet_event_accessor(var: OutletEventAccessor) -> dict[str, Any]:
     raw_key = var.raw_key
     return {
         "extra": var.extra,
-        "dataset_alias_event": var.dataset_alias_event,
+        "asset_alias_event": var.asset_alias_event,
         "raw_key": BaseSerialization.serialize(raw_key),
     }
 
@@ -294,7 +294,7 @@ def encode_outlet_event_accessor(var: OutletEventAccessor) -> dict[str, Any]:
 def decode_outlet_event_accessor(var: dict[str, Any]) -> OutletEventAccessor:
     raw_key = BaseSerialization.deserialize(var["raw_key"])
     outlet_event_accessor = OutletEventAccessor(extra=var["extra"], raw_key=raw_key)
-    outlet_event_accessor.dataset_alias_event = var["dataset_alias_event"]
+    outlet_event_accessor.asset_alias_event = var["asset_alias_event"]
     return outlet_event_accessor
 
 
@@ -736,7 +736,7 @@ class BaseSerialization:
             return cls._encode(serialize_xcom_arg(var), type_=DAT.XCOM_REF)
         elif isinstance(var, LazySelectSequence):
             return cls.serialize(list(var))
-        elif isinstance(var, BaseDataset):
+        elif isinstance(var, BaseAsset):
             serialized_dataset = encode_dataset_condition(var)
             return cls._encode(serialized_dataset, type_=serialized_dataset.pop("__type"))
         elif isinstance(var, SimpleTaskInstance):
@@ -871,9 +871,9 @@ class BaseSerialization:
         elif type_ == DAT.DATASET_ALIAS:
             return DatasetAlias(**var)
         elif type_ == DAT.DATASET_ANY:
-            return DatasetAny(*(decode_dataset_condition(x) for x in var["objects"]))
+            return AssetAny(*(decode_dataset_condition(x) for x in var["objects"]))
         elif type_ == DAT.DATASET_ALL:
-            return DatasetAll(*(decode_dataset_condition(x) for x in var["objects"]))
+            return AssetAll(*(decode_dataset_condition(x) for x in var["objects"]))
         elif type_ == DAT.SIMPLE_TASK_INSTANCE:
             return SimpleTaskInstance(**cls.deserialize(var))
         elif type_ == DAT.CONNECTION:

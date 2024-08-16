@@ -36,12 +36,12 @@ from sqlalchemy import func, select, update
 
 import airflow.example_dags
 from airflow import settings
+from airflow.assets import Dataset
+from airflow.assets.manager import AssetManager
 from airflow.callbacks.callback_requests import DagCallbackRequest, SlaCallbackRequest, TaskCallbackRequest
 from airflow.callbacks.database_callback_sink import DatabaseCallbackSink
 from airflow.callbacks.pipe_callback_sink import PipeCallbackSink
 from airflow.dag_processing.manager import DagFileProcessorAgent
-from airflow.datasets import Dataset
-from airflow.datasets.manager import DatasetManager
 from airflow.exceptions import AirflowException
 from airflow.executors.base_executor import BaseExecutor
 from airflow.executors.executor_constants import MOCK_EXECUTOR
@@ -4246,7 +4246,7 @@ class TestSchedulerJob:
             pass
         with dag_maker(dag_id="producer", schedule="@daily", session=session):
             BashOperator(task_id="task", bash_command="echo 1", outlets=ds)
-        dsm = DatasetManager()
+        dsm = AssetManager()
 
         ds_id = session.scalars(select(DatasetModel.id).filter_by(uri=ds.uri)).one()
 
@@ -4260,9 +4260,9 @@ class TestSchedulerJob:
 
         # A DDRQ is not scheduled although an event is emitted.
         dr1: DagRun = dag_maker.create_dagrun(run_type=DagRunType.SCHEDULED)
-        dsm.register_dataset_change(
+        dsm.register_asset_change(
             task_instance=dr1.get_task_instance("task", session=session),
-            dataset=ds,
+            asset=ds,
             session=session,
         )
         assert session.scalars(dse_q).one().source_run_id == dr1.run_id
@@ -4273,9 +4273,9 @@ class TestSchedulerJob:
 
         # A DDRQ should be scheduled for the new event, but not the previous one.
         dr2: DagRun = dag_maker.create_dagrun_after(dr1, run_type=DagRunType.SCHEDULED)
-        dsm.register_dataset_change(
+        dsm.register_asset_change(
             task_instance=dr2.get_task_instance("task", session=session),
-            dataset=ds,
+            asset=ds,
             session=session,
         )
         assert [e.source_run_id for e in session.scalars(dse_q)] == [dr1.run_id, dr2.run_id]

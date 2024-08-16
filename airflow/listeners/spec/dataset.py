@@ -22,20 +22,16 @@ from typing import TYPE_CHECKING
 from pluggy import HookspecMarker
 
 if TYPE_CHECKING:
-    from airflow.datasets import Dataset
+    from airflow.assets import Dataset
 
 hookspec = HookspecMarker("airflow")
 
 
 @hookspec
-def on_dataset_created(
-    dataset: Dataset,
-):
-    """Execute when a new dataset is created."""
+def on_asset_created(asset: Dataset):
+    """Execute when a new asset is created."""
 
 
 @hookspec
-def on_dataset_changed(
-    dataset: Dataset,
-):
-    """Execute when dataset change is registered."""
+def on_asset_changed(asset: Dataset):
+    """Execute when asset change is registered."""

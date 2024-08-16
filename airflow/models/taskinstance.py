@@ -68,10 +68,10 @@ from sqlalchemy.sql.expression import case, select
 
 from airflow import settings
 from airflow.api_internal.internal_api_call import InternalApiConfig, internal_api_call
+from airflow.assets import Dataset, DatasetAlias
+from airflow.assets.manager import asset_manager
 from airflow.compat.functools import cache
 from airflow.configuration import conf
-from airflow.datasets import Dataset, DatasetAlias
-from airflow.datasets.manager import dataset_manager
 from airflow.exceptions import (
     AirflowException,
     AirflowFailException,
@@ -359,7 +359,7 @@ def _run_raw_task(
         if not test_mode:
             _add_log(event=ti.state, task_instance=ti, session=session)
             if ti.state == TaskInstanceState.SUCCESS:
-                ti._register_dataset_changes(events=context["outlet_events"], session=session)
+                ti._register_asset_changes(events=context["outlet_events"], session=session)
 
             TaskInstance.save_to_db(ti=ti, session=session)
             if ti.state == TaskInstanceState.SUCCESS:
@@ -2996,7 +2996,7 @@ class TaskInstance(Base, LoggingMixin):
             session=session,
         )
 
-    def _register_dataset_changes(self, *, events: OutletEventAccessors, session: Session) -> None:
+    def _register_asset_changes(self, *, events: OutletEventAccessors, session: Session) -> None:
         if TYPE_CHECKING:
             assert self.task
 
@@ -3008,20 +3008,20 @@ class TaskInstance(Base, LoggingMixin):
             self.log.debug("outlet obj %s", obj)
             # Lineage can have other types of objects besides datasets
             if isinstance(obj, Dataset):
-                dataset_manager.register_dataset_change(
+                asset_manager.register_asset_change(
                     task_instance=self,
-                    dataset=obj,
+                    asset=obj,
                     extra=events[obj].extra,
                     session=session,
                 )
             elif isinstance(obj, DatasetAlias):
-                if dataset_alias_event := events[obj].dataset_alias_event:
-                    dataset_uri = dataset_alias_event["dest_dataset_uri"]
+                if asset_alias_event := events[obj].asset_alias_event:
+                    asset_uri = asset_alias_event["dest_asset_uri"]
                     extra = events[obj].extra
                     frozen_extra = frozenset(extra.items())
-                    dataset_alias_name = dataset_alias_event["source_alias_name"]
+                    dataset_alias_name = asset_alias_event["source_alias_name"]
 
-                    dataset_tuple_to_alias_names_mapping[(dataset_uri, frozen_extra)].add(dataset_alias_name)
+                    dataset_tuple_to_alias_names_mapping[(asset_uri, frozen_extra)].add(dataset_alias_name)
 
         dataset_objs_cache: dict[str, DatasetModel] = {}
         for (uri, extra_items), alias_names in dataset_tuple_to_alias_names_mapping.items():
@@ -3033,7 +3033,7 @@ class TaskInstance(Base, LoggingMixin):
 
             if not dataset_obj:
                 dataset_obj = DatasetModel(uri=uri)
-                dataset_manager.create_datasets(dataset_models=[dataset_obj], session=session)
+                asset_manager.create_assets(asset_models=[dataset_obj], session=session)
                 self.log.warning("Created a new %r as it did not exist.", dataset_obj)
                 dataset_objs_cache[uri] = dataset_obj
 
@@ -3049,9 +3049,9 @@ class TaskInstance(Base, LoggingMixin):
                 dataset_obj,
                 ", ".join(alias_names),
             )
-            dataset_manager.register_dataset_change(
+            asset_manager.register_asset_change(
                 task_instance=self,
-                dataset=dataset_obj,
+                asset=dataset_obj,
                 extra=extra,
                 session=session,
                 source_alias_names=alias_names,

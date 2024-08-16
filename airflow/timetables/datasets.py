@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import typing
 
-from airflow.datasets import BaseDataset, DatasetAll
+from airflow.assets import AssetAll, BaseAsset
 from airflow.exceptions import AirflowTimetableInvalid
 from airflow.timetables.simple import DatasetTriggeredTimetable as DatasetTriggeredSchedule
 from airflow.utils.types import DagRunType
@@ -29,7 +29,7 @@ if typing.TYPE_CHECKING:
 
     import pendulum
 
-    from airflow.datasets import Dataset
+    from airflow.assets import Dataset
     from airflow.timetables.base import DagRunInfo, DataInterval, TimeRestriction, Timetable
 
 
@@ -40,13 +40,13 @@ class DatasetOrTimeSchedule(DatasetTriggeredSchedule):
         self,
         *,
         timetable: Timetable,
-        datasets: Collection[Dataset] | BaseDataset,
+        datasets: Collection[Dataset] | BaseAsset,
     ) -> None:
         self.timetable = timetable
-        if isinstance(datasets, BaseDataset):
+        if isinstance(datasets, BaseAsset):
             self.dataset_condition = datasets
         else:
-            self.dataset_condition = DatasetAll(*datasets)
+            self.dataset_condition = AssetAll(*datasets)
 
         self.description = f"Triggered by datasets or {timetable.description}"
         self.periodic = timetable.periodic
@@ -73,7 +73,7 @@ class DatasetOrTimeSchedule(DatasetTriggeredSchedule):
     def validate(self) -> None:
         if isinstance(self.timetable, DatasetTriggeredSchedule):
             raise AirflowTimetableInvalid("cannot nest dataset timetables")
-        if not isinstance(self.dataset_condition, BaseDataset):
+        if not isinstance(self.dataset_condition, BaseAsset):
             raise AirflowTimetableInvalid("all elements in 'datasets' must be datasets")
 
     @property
