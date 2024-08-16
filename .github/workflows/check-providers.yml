@@ -250,6 +250,7 @@ jobs:
           breeze release-management verify-provider-packages
           --use-packages-from-dist
           --package-format wheel
+          --clean-airflow-installation
           --use-airflow-version wheel
           --airflow-constraints-reference constraints-${{matrix.airflow-version}}
           --providers-skip-constraints
@@ -263,6 +264,7 @@ jobs:
           --parallel-test-types "${{ inputs.providers-test-types-list-as-string }}"
           --use-packages-from-dist
           --package-format wheel
+          --clean-airflow-installation
           --use-airflow-version "${{ matrix.airflow-version }}"
           --airflow-constraints-reference constraints-${{matrix.airflow-version}}
           --install-airflow-with-constraints
