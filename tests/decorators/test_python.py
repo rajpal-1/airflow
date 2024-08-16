@@ -686,7 +686,7 @@ def test_mapped_decorator():
     def print_everything(**kwargs) -> None:
         print(kwargs)
 
-    with DAG("test_mapped_decorator", start_date=DEFAULT_DATE):
+    with DAG("test_mapped_decorator", schedule=None, start_date=DEFAULT_DATE):
         t0 = print_info.expand(m1=["a", "b"], m2={"foo": "bar"})
         t1 = print_info.partial(m1="hi").expand(m2=[1, 2, 3])
         t2 = print_everything.partial(whatever="123").expand(any_key=[1, 2], works=t1)
@@ -722,7 +722,7 @@ def test_partial_mapped_decorator() -> None:
 
     literal = [1, 2, 3]
 
-    with DAG("test_dag", start_date=DEFAULT_DATE) as dag:
+    with DAG("test_dag", schedule=None, start_date=DEFAULT_DATE) as dag:
         quadrupled = product.partial(multiple=3).expand(number=literal)
         doubled = product.partial(multiple=2).expand(number=literal)
         trippled = product.partial(multiple=3).expand(number=literal)
@@ -1000,50 +1000,52 @@ def test_task_decorator_dataset(dag_maker, session):
 
 
 def test_teardown_trigger_rule_selective_application(dag_maker, session):
-    with dag_maker(session=session) as dag:
+    with dag_maker(session=session, serialized=True) as created_dag:
+        dag = created_dag
 
-        @dag.task
-        def my_work():
-            return "abc"
+    @dag.task
+    def my_work():
+        return "abc"
 
-        @setup
-        @dag.task
-        def my_setup():
-            return "abc"
+    @setup
+    @dag.task
+    def my_setup():
+        return "abc"
 
-        @teardown
-        @dag.task
-        def my_teardown():
-            return "abc"
+    @teardown
+    @dag.task
+    def my_teardown():
+        return "abc"
 
-        work_task = my_work()
-        setup_task = my_setup()
-        teardown_task = my_teardown()
+    work_task = my_work()
+    setup_task = my_setup()
+    teardown_task = my_teardown()
     assert work_task.operator.trigger_rule == TriggerRule.ALL_SUCCESS
     assert setup_task.operator.trigger_rule == TriggerRule.ALL_SUCCESS
     assert teardown_task.operator.trigger_rule == TriggerRule.ALL_DONE_SETUP_SUCCESS
 
 
 def test_teardown_trigger_rule_override_behavior(dag_maker, session):
-    with dag_maker(session=session) as dag:
+    with dag_maker(session=session, serialized=True) as created_dag:
+        dag = created_dag
 
-        @dag.task(trigger_rule=TriggerRule.ONE_SUCCESS)
-        def my_work():
-            return "abc"
+    @dag.task(trigger_rule=TriggerRule.ONE_SUCCESS)
+    def my_work():
+        return "abc"
 
-        @setup
-        @dag.task(trigger_rule=TriggerRule.ONE_SUCCESS)
-        def my_setup():
-            return "abc"
+    @setup
+    @dag.task(trigger_rule=TriggerRule.ONE_SUCCESS)
+    def my_setup():
+        return "abc"
 
-        @teardown
-        @dag.task(trigger_rule=TriggerRule.ONE_SUCCESS)
-        def my_teardown():
-            return "abc"
+    @teardown
+    @dag.task(trigger_rule=TriggerRule.ONE_SUCCESS)
+    def my_teardown():
+        return "abc"
 
-        work_task = my_work()
-        setup_task = my_setup()
-        with pytest.raises(Exception, match="Trigger rule not configurable for teardown tasks."):
-            my_teardown()
+    work_task = my_work()
+    setup_task = my_setup()
+    with pytest.raises(Exception, match="Trigger rule not configurable for teardown tasks."):
+        my_teardown()
     assert work_task.operator.trigger_rule == TriggerRule.ONE_SUCCESS
     assert setup_task.operator.trigger_rule == TriggerRule.ONE_SUCCESS
