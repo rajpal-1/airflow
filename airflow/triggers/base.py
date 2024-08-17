@@ -21,6 +21,7 @@ import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, AsyncIterator
+from enum import Enum
 
 from airflow.callbacks.callback_requests import TaskCallbackRequest
 from airflow.callbacks.database_callback_sink import DatabaseCallbackSink
@@ -101,7 +102,7 @@ class BaseTrigger(abc.ABC, LoggingMixin):
         raise NotImplementedError("Triggers must implement run()")
         yield  # To convince Mypy this is an async iterator.
 
-    async def cleanup(self) -> None:
+    async def cleanup(self, termination_reason: TriggerTerminationReason | None = None) -> None:
         """
         Cleanup the trigger.
 
@@ -113,6 +114,12 @@ class BaseTrigger(abc.ABC, LoggingMixin):
         are ignored, so if you would like to be able to debug them and be notified
         that cleanup method failed, you should wrap your code with try/except block
         and handle it appropriately (in async-compatible way).
+
+        Since the trigger could be terminated for various reasons, like triggerer restart
+        or reassigned to another triggerer, the termination reason will be provided to
+        allows the trigger to decide whether it should be cleaned up under the current circumstances.
+
+        :param termination_reason: The reason for terminating the trigger.
         """
 
     def __repr__(self) -> str:
@@ -244,3 +251,12 @@ class TaskSkippedEvent(BaseTaskEndEvent):
     """Yield this event in order to end the task with status 'skipped'."""
 
     task_instance_state = TaskInstanceState.SKIPPED
+
+
+class TriggerTerminationReason(Enum):
+    """Reason for terminating a trigger."""
+
+    REASSIGNED = "reassigned"
+    """When current running trigger already been assigned to run in another triggerer."""
+
+    OTHER = "other"
